@@ -83,16 +83,14 @@ df_edit_check = carregar_dados()
 if not df_edit_check.empty:
     df_edit_check.columns = [col.strip() for col in df_edit_check.columns]
     
-    # Criamos uma lista de opções vinculando explicitamente a linha real do Google Sheets (1 cabeçalho + índice 0 = linha 2)
     opcoes_edicao = []
     mapeamento_linhas = {}
     
     for idx, row in df_edit_check.iterrows():
-        # A linha real no Google Sheets começa na linha 2 (por isso idx + 2)
-        linha_planilha = idx + 2
-        mun = row.get('Municipio', '')
-        bairro = row.get('Bairro', '')
-        pressao = row.get('Pressao_MCA', '')
+        linha_planilha = idx + 2  # Linha física no Google Sheets
+        mun = str(row.get('Municipio', ''))
+        bairro = str(row.get('Bairro', ''))
+        pressao = str(row.get('Pressao_MCA', ''))
         
         texto_opcao = f"Linha {linha_planilha}: {mun} - {bairro} ({pressao} MCA)"
         opcoes_edicao.append(texto_opcao)
@@ -102,27 +100,43 @@ if not df_edit_check.empty:
     
     if ponto_para_editar != "Nenhum":
         linha_idx = mapeamento_linhas[ponto_para_editar]
-        # Recupera os dados direto da linha correspondente no DataFrame original
         row_data = df_edit_check.iloc[linha_idx - 2]
         
         with st.sidebar.form("form_edicao"):
             edit_mun = st.text_input("Município", value=str(row_data.get('Municipio', '')))
             edit_bairro = st.text_input("Bairro", value=str(row_data.get('Bairro', '')))
-            edit_lat = st.number_input("Latitude", format="%.6f", value=float(str(row_data.get('Latitude', 0.0)).replace(',', '.')))
-            edit_lon = st.number_input("Longitude", format="%.6f", value=float(str(row_data.get('Longitude', 0.0)).replace(',', '.')))
-            edit_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=float(str(row_data.get('Pressao_MCA', 0.0)).replace(',', '.')))
+            
+            # Tratamento seguro para valores numéricos
+            def parse_float(val):
+                try:
+                    return float(str(val).replace(',', '.'))
+                except:
+                    return 0.0
+
+            edit_lat = st.number_input("Latitude", format="%.6f", value=parse_float(row_data.get('Latitude', 0.0)))
+            edit_lon = st.number_input("Longitude", format="%.6f", value=parse_float(row_data.get('Longitude', 0.0)))
+            edit_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=parse_float(row_data.get('Pressao_MCA', 0.0)))
             
             salvar_edicao = st.form_submit_button("💾 Salvar Alterações")
             if salvar_edicao:
                 data_atual = str(row_data.get('Data', datetime.now().strftime("%d/%m/%Y")))
-                valores_atualizados = [[data_atual, edit_mun, edit_bairro, edit_lat, edit_lon, edit_pressao]]
                 
-                # Executa a atualização na linha exata da planilha do Google Sheets
-                worksheet.update(f"A{linha_idx}:F{linha_idx}", valores_atualizados)
-                st.sidebar.success(f"Registro da linha {linha_idx} atualizado com sucesso!")
-                st.rerun()
-
-st.sidebar.divider()
+                try:
+                    # Atualização célula a célula para garantir compatibilidade total com o gspread
+                    worksheet.update_cell(linha_idx, 1, data_atual)
+                    worksheet.update_cell(linha_idx, 2, edit_mun)
+                    worksheet.update_cell(linha_idx, 3, edit_bairro)
+                    worksheet.update_cell(linha_idx, 4, edit_lat)
+                    worksheet.update_cell(linha_idx, 5, edit_lon)
+                    worksheet.update_cell(linha_idx, 6, edit_pressao)
+                    
+                    # Limpa o cache do Streamlit para forçar a leitura dos novos dados imediatamente
+                    st.cache_data.clear()
+                    
+                    st.sidebar.success(f"Registro da linha {linha_idx} atualizado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.sidebar.error(f"Erro ao salvar no Google Sheets: {e}")
 
 # --- IMPORTAÇÃO EM MASSA E MODELO ---
 st.sidebar.header("📂 Importação em Massa")
