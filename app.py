@@ -16,11 +16,12 @@ st.set_page_config(page_title="Monitoramento de Pressão COI", page_icon="💧",
 # Temporizador de recarregamento automático (a cada 30 segundos)
 count = st_autorefresh(interval=30000, key="counter_pressao")
 
-# Conexão com Google Sheets usando Secrets
+# Conexão com Google Sheets usando Secrets em formato JSON bruto
 @st.cache_resource
 def conectar_google_sheets():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    credentials_dict = st.secrets["gcp_service_account"]
+    # Lê o JSON completo diretamente dos Secrets
+    credentials_dict = json.loads(st.secrets["gcp_json"])
     credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
     sh = gc.open("Pontos_Baixa_Pressao_COI")
