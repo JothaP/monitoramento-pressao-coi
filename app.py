@@ -18,13 +18,17 @@ count = st_autorefresh(interval=30000, key="counter_pressao")
 
 # Conexão com Google Sheets usando Secrets em formato JSON bruto
 @st.cache_resource
+# Conexão com Google Sheets usando o ID da planilha e o JSON bruto
+@st.cache_resource
 def conectar_google_sheets():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    # Lê o JSON completo diretamente dos Secrets
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     credentials_dict = json.loads(st.secrets["gcp_json"])
     credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
-    sh = gc.open("Pontos_Baixa_Pressao_COI")
+    
+    # Substitua "COLE_O_ID_DA_SUA_PLANILHA_AQUI" pelo ID real da sua planilha
+    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"
+    sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
 worksheet = conectar_google_sheets()
