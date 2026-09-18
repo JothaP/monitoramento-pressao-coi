@@ -29,7 +29,7 @@ def conectar_google_sheets():
     credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
     
-    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # ID da planilha
+    spreadsheet_id = "1O3R4w8x-l6LqW0p6cQzX5N8t9R2v4Q7m1Z3x5N8t9R2"  # ID da planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
@@ -39,7 +39,7 @@ except Exception as e:
     st.error(f"Erro ao conectar com o Google Sheets: {e}")
     st.stop()
 
-# Função para carregar os dados (Estrutura atualizada com Data, Municipio, Bairro, Latitude, Longitude, Pressao_MCA)
+# Função para carregar os dados
 def carregar_dados():
     data = worksheet.get_all_records()
     if not data:
@@ -53,7 +53,6 @@ st.markdown("Visualização em tempo real de ocorrências de baixa pressão e re
 # --- BARRA LATERAL ---
 st.sidebar.header("➕ Novo Registro de Pressão")
 
-# Formulário com campos separados para Município e Bairro
 with st.sidebar.form("form_ponto", clear_on_submit=True):
     municipio = st.text_input("Município", value="", placeholder="Ex: Teresina")
     bairro = st.text_input("Bairro", value="", placeholder="Ex: Centro")
@@ -101,7 +100,7 @@ if not df_edit_check.empty:
 
 st.sidebar.divider()
 
-# --- IMPORTAÇÃO EM MASSA E MODELO (ATUALIZADO PARA MUN/BAIRRO) ---
+# --- IMPORTAÇÃO EM MASSA E MODELO ---
 st.sidebar.header("📂 Importação em Massa")
 
 df_modelo = pd.DataFrame(columns=["Data", "Municipio", "Bairro", "Latitude", "Longitude", "Pressao_MCA"])
@@ -149,7 +148,6 @@ if arquivo_upload is not None:
                     elif 'pressao' in c_lower or 'pressão' in c_lower or 'mca' in c_lower:
                         pressao_val = val
                 
-                # Caso a planilha antiga ainda venha com um campo unificado
                 if not bairro_val:
                     for col in df_upload.columns:
                         if 'bairro' in col.lower() or 'local' in col.lower():
@@ -246,7 +244,7 @@ if not df.empty:
     with open(kmz_path, "rb") as f:
         st.sidebar.download_button("🗺️ Baixar Arquivo KMZ", data=f, file_name="pontos_baixa_pressao.kmz", mime="application/vnd.google-earth.kmz")
 
-# --- FILTROS NA ÁREA PRINCIPAL (REFINADOS) ---
+# --- FILTROS NA ÁREA PRINCIPAL ---
 if not df.empty:
     st.subheader("🔍 Filtros de Visualização")
     f_col1, f_col2, f_col3 = st.columns(3)
@@ -284,7 +282,7 @@ if not df_filtrado.empty:
     kpi4.metric("Normais (> 5 MCA)", normais)
     
     if criticos_zero > 0:
-        st.error(f"🚨 **ALERTA COI:** Existem {criticos_zero} ocorrência(s) com pressão zerada (0 MCA) exigindo ação imediata da equipe técnica!")
+        st.error(f"🚨 **ALERTA COI:** Existen {criticos_zero} ocorrência(s) com pressão zerada (0 MCA) exigindo ação imediata da equipe técnica!")
 
 st.divider()
 
@@ -352,10 +350,11 @@ if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' i
             popup_html = f"<b>Data:</b> {data_reg}<br><b>Município:</b> {mun_nome}<br><b>Bairro:</b> {bairro_nome}<br><b>Pressão:</b> {pressao} MCA"
             
             if mostrar_rotulos:
+                # Rótulo simplificado contendo apenas Bairro e Pressão
                 icon_html = f"""
                 <div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
                     <div style="background: white; padding: 3px 8px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 12px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
-                        {mun_nome} - {bairro_nome} ({pressao} MCA)
+                        {bairro_nome} ({pressao} MCA)
                     </div>
                     <div style="background-color: {cor}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.7);"></div>
                 </div>
