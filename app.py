@@ -29,7 +29,7 @@ def conectar_google_sheets():
     gc = gspread.authorize(credentials)
     
     # ID da planilha do Google Sheets
-    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU" # Substitua se necessário pelo ID exato da sua planilha
+    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # Substitua se necessário pelo ID exato da sua planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
@@ -67,13 +67,13 @@ with st.sidebar.form("form_ponto", clear_on_submit=True):
         else:
             st.sidebar.error("Informe o nome do bairro/município.")
 
-# Carregar e normalizar dados com mapeamento fixo das colunas da planilha
+# Carregar e normalizar dados
 df = carregar_dados()
 
 if not df.empty:
     df.columns = [col.strip() for col in df.columns]
     
-    # Mapeamento direto baseado nas colunas reais da planilha
+    # Mapeamento flexível de colunas
     col_map = {}
     for c in df.columns:
         c_lower = c.lower()
@@ -88,7 +88,7 @@ if not df.empty:
             
     df = df.rename(columns=col_map)
     
-    # Substituir vírgula por ponto para tratar o padrão numérico brasileiro do Google Sheets
+    # Correção robusta para padrão numérico brasileiro (substitui vírgula por ponto)
     for col in ['Latitude', 'Longitude', 'Pressao_MCA']:
         if col in df.columns:
             df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
@@ -122,38 +122,42 @@ st.divider()
 st.subheader("🗺️ Mapa de Baixa Pressão em Tempo Real")
 
 if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
-    centro_lat = df['Latitude'].mean()
-    centro_lon = df['Longitude'].mean()
-    m = folium.Map(location=[centro_lat, centro_lon], zoom_start=12, tiles="OpenStreetMap")
-    
-    # Adicionar polígonos de bairros se o arquivo existir
-    if os.path.exists("bairros.geojson"):
-        with open("bairros.geojson", "r", encoding="utf-8") as f:
-            geojson_bairros = json.load(f)
-        folium.GeoJson(
-            geojson_bairros,
-            name="Limites dos Bairros",
-            style_function=lambda feature: {'fillColor': '#3186cc', 'color': '#2b2b2b', 'weight': 1.5, 'fillOpacity': 0.1},
-            highlight_function=lambda feature: {'weight': 3, 'fillOpacity': 0.3}
-        ).add_to(m)
-
-    # Marcadores dos pontos
-    for _, row in df.iterrows():
-        pressao = row.get('Pressao_MCA', 0.0)
-        bairro_nome = row.get('Bairro', 'Desconhecido')
-        cor = "red" if pressao < 5.0 else "orange" if pressao < 10.0 else "blue"
+    valid_df = df.dropna(subset=['Latitude', 'Longitude'])
+    if not valid_df.empty:
+        centro_lat = valid_df['Latitude'].mean()
+        centro_lon = valid_df['Longitude'].mean()
+        m = folium.Map(location=[centro_lat, centro_lon], zoom_start=12, tiles="OpenStreetMap")
         
-        popup_html = f"<b>Bairro:</b> {bairro_nome}<br><b>Pressão:</b> {pressao} MCA"
-        
-        folium.Marker(
-            location=[row['Latitude'], row['Longitude']],
-            popup=folium.Popup(popup_html, max_width=250),
-            tooltip=f"{bairro_nome} ({pressao} MCA)",
-            icon=folium.Icon(color=cor, icon="tint", prefix="fa")
-        ).add_to(m)
+        # Adicionar polígonos de bairros se o arquivo existir
+        if os.path.exists("bairros.geojson"):
+            with open("bairros.geojson", "r", encoding="utf-8") as f:
+                geojson_bairros = json.load(f)
+            folium.GeoJson(
+                geojson_bairros,
+                name="Limites dos Bairros",
+                style_function=lambda feature: {'fillColor': '#3186cc', 'color': '#2b2b2b', 'weight': 1.5, 'fillOpacity': 0.1},
+                highlight_function=lambda feature: {'weight': 3, 'fillOpacity': 0.3}
+            ).add_to(m)
 
-    folium.LayerControl().add_to(m)
-    st_folium(m, width="100%", height=500, returned_objects=[])
+        # Marcadores dos pontos
+        for _, row in valid_df.iterrows():
+            pressao = row.get('Pressao_MCA', 0.0)
+            bairro_nome = row.get('Bairro', 'Desconhecido')
+            cor = "red" if pressao < 5.0 else "orange" if pressao < 10.0 else "blue"
+            
+            popup_html = f"<b>Bairro:</b> {bairro_nome}<br><b>Pressão:</b> {pressao} MCA"
+            
+            folium.Marker(
+                location=[row['Latitude'], row['Longitude']],
+                popup=folium.Popup(popup_html, max_width=250),
+                tooltip=f"{bairro_nome} ({pressao} MCA)",
+                icon=folium.Icon(color=cor, icon="tint", prefix="fa")
+            ).add_to(m)
+
+        folium.LayerControl().add_to(m)
+        st_folium(m, width="100%", height=500, returned_objects=[])
+    else:
+        st.info("Coordenadas válidas não encontradas para exibir no mapa.")
 else:
     st.info("Nenhum ponto registrado para exibir no mapa.")
 
@@ -171,23 +175,25 @@ if not df.empty:
     # KMZ
     kml = simplekml.Kml()
     for _, row in df.iterrows():
-        kml.newpoint(name=f"{row.get('Bairro', '')} - {row.get('Pressao_MCA', '')} MCA", coords=[(row['Longitude'], row['Latitude'])])
+        if pd.notna(row.get('Longitude')) and pd.notna(row.get('Latitude')):
+            kml.newpoint(name=f"{row.get('Bairro', '')} - {row.get('Pressao_MCA', '')} MCA", coords=[(row['Longitude'], row['Latitude'])])
     kmz_path = "pontos.kmz"
     kml.savekmz(kmz_path)
     with open(kmz_path, "rb") as f:
         col_ex2.download_button("🗺️ Baixar Arquivo KMZ", data=f, file_name="pontos_baixa_pressao.kmz", mime="application/vnd.google-earth.kmz")
 
     # PNG
-    fig, ax = plt.subplots(figsize=(8, 5))
-    sc = ax.scatter(df['Longitude'], df['Latitude'], c=df['Pressao_MCA'], cmap='autumn', s=120, edgecolors='black')
-    plt.colorbar(sc, label='Pressão (MCA)')
-    for _, row in df.iterrows():
-        ax.annotate(f"{row.get('Bairro', '')}\n({row.get('Pressao_MCA', '')} MCA)", (row['Longitude'], row['Latitude']), xytext=(0, 6), textcoords="offset points", ha='center', fontsize=8)
-    plt.title('Pontos de Baixa Pressão Registrados')
-    plt.grid(True, linestyle='--', alpha=0.6)
-    png_path = "mapa_pressao.png"
-    plt.savefig(png_path, bbox_inches='tight', dpi=150)
-    plt.close()
+    if not valid_df.empty:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        sc = ax.scatter(valid_df['Longitude'], valid_df['Latitude'], c=valid_df['Pressao_MCA'], cmap='autumn', s=120, edgecolors='black')
+        plt.colorbar(sc, label='Pressão (MCA)')
+        for _, row in valid_df.iterrows():
+            ax.annotate(f"{row.get('Bairro', '')}\n({row.get('Pressao_MCA', '')} MCA)", (row['Longitude'], row['Latitude']), xytext=(0, 6), textcoords="offset points", ha='center', fontsize=8)
+        plt.title('Pontos de Baixa Pressão Registrados')
+        plt.grid(True, linestyle='--', alpha=0.6)
+        png_path = "mapa_pressao.png"
+        plt.savefig(png_path, bbox_inches='tight', dpi=150)
+        plt.close()
 
-    with open(png_path, "rb") as f:
-        col_ex3.download_button("🖼️ Baixar Mapa PNG", data=f, file_name="mapa_pressao.png", mime="image/png")
+        with open(png_path, "rb") as f:
+            col_ex3.download_button("🖼️ Baixar Mapa PNG", data=f, file_name="mapa_pressao.png", mime="image/png")
