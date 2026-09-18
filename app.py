@@ -98,12 +98,11 @@ if not df_edit_check.empty:
 
 st.sidebar.divider()
 
-# --- IMPORTAÇÃO EM MASSA E MODELO ---
+# --- IMPORTAÇÃO EM MASSA E MODELO (COM SUPORTE A XLSX) ---
 st.sidebar.header("📂 Importação em Massa")
 
-# Botão para baixar o modelo de planilha estruturada
+# Botão para baixar o modelo de planilha estruturada em CSV
 df_modelo = pd.DataFrame(columns=["Data", "Bairro", "Latitude", "Longitude", "Pressao_MCA"])
-# Adicionar um exemplo ilustrativo na primeira linha do modelo
 df_modelo.loc[0] = [datetime.now().strftime("%d/%m/%Y"), "Teresina - Centro", -5.0892, -42.8019, 4.5]
 csv_modelo = df_modelo.to_csv(index=False).encode('utf-8')
 
@@ -115,10 +114,12 @@ st.sidebar.download_button(
     help="Baixe este arquivo para preencher com a estrutura correta antes de fazer o upload."
 )
 
-arquivo_upload = st.sidebar.file_uploader("Enviar Planilha Preenchida (CSV)", type=["csv", "xlsx"])
+# Permitir arquivos do tipo .csv e .xlsx
+arquivo_upload = st.sidebar.file_uploader("Enviar Planilha Preenchida", type=["csv", "xlsx"])
 
 if arquivo_upload is not None:
     try:
+        # Detectar o tipo de arquivo automaticamente e ler
         if arquivo_upload.name.endswith('.csv'):
             df_upload = pd.read_csv(arquivo_upload)
         else:
@@ -145,7 +146,6 @@ st.sidebar.divider()
 # --- EXPORTAÇÃO DE DADOS NA BARRA LATERAL ---
 st.sidebar.header("💾 Exportação de Dados")
 
-# Carregar e normalizar dados globais para exportação e uso no painel
 df = carregar_dados()
 
 if not df.empty:
@@ -170,7 +170,6 @@ if not df.empty:
     if 'Data' not in df.columns:
         df['Data'] = datetime.now().strftime("%d/%m/%Y")
 
-    # Conversão robusta de coordenadas
     for col in ['Latitude', 'Longitude']:
         if col in df.columns:
             s = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip()
