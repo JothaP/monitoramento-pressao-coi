@@ -67,20 +67,28 @@ with st.sidebar.form("form_ponto", clear_on_submit=True):
         else:
             st.sidebar.error("Informe o nome do bairro/município.")
 
-# Carregar e normalizar dados
+# Carregar e normalizar dados com mapeamento fixo das colunas da planilha
 df = carregar_dados()
 
 if not df.empty:
     df.columns = [col.strip() for col in df.columns]
     
-    # Mapeamento flexível de colunas
-    col_bairro = next((c for c in df.columns if 'bairro' in c.lower()), df.columns[0])
-    col_lat = next((c for c in df.columns if 'lat' in c.lower()), df.columns[1])
-    col_lon = next((c for c in df.columns if 'lon' in c.lower()), df.columns[2])
-    col_pressao = next((c for c in df.columns if 'pressao' in c.lower() or 'mca' in c.lower()), df.columns[3])
+    # Mapeamento direto baseado nas colunas reais da planilha
+    col_map = {}
+    for c in df.columns:
+        c_lower = c.lower()
+        if 'bairro' in c_lower or 'município' in c_lower:
+            col_map[c] = 'Bairro'
+        elif 'lat' in c_lower:
+            col_map[c] = 'Latitude'
+        elif 'lon' in c_lower:
+            col_map[c] = 'Longitude'
+        elif 'pressao' in c_lower or 'mca' in c_lower:
+            col_map[c] = 'Pressao_MCA'
+            
+    df = df.rename(columns=col_map)
     
-    df = df.rename(columns={col_bairro: 'Bairro', col_lat: 'Latitude', col_lon: 'Longitude', col_pressao: 'Pressao_MCA'})
-    
+    # Forçar conversão numérica para evitar erros no mapa
     df['Latitude'] = pd.to_numeric(df['Latitude'], errors='coerce')
     df['Longitude'] = pd.to_numeric(df['Longitude'], errors='coerce')
     df['Pressao_MCA'] = pd.to_numeric(df['Pressao_MCA'], errors='coerce')
