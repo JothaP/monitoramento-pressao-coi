@@ -76,68 +76,84 @@ with st.sidebar.form("form_ponto", clear_on_submit=True):
 
 st.sidebar.divider()
 
-# --- EDIÇÃO DE REGISTROS NA BARRA LATERAL ---
+# --- EDIÇÃO DE REGISTROS NA BARRA LATERAL (VERSÃO ROBUSTA POR IDENTIFICADOR) ---
 st.sidebar.header("✏️ Editar Registro")
-df_edit_check = carregar_dados()
+
+# Força o recarregamento dos dados sem cache para garantir dados frescos
+@st.cache_data(ttl=1)
+def carregar_dados_frescos():
+    return carregar_dados()
+
+df_edit_check = carregar_dados_frescos()
 
 if not df_edit_check.empty:
     df_edit_check.columns = [col.strip() for col in df_edit_check.columns]
     
-    opcoes_edicao = []
-    mapeamento_linhas = {}
+    # Criamos um identificador único legível para cada linha baseado no conteúdo real
+    opcoes_edicao = ["Nenhum"]
+    mapa_registros = {}
     
     for idx, row in df_edit_check.iterrows():
-        linha_planilha = idx + 2  # Linha física no Google Sheets
         mun = str(row.get('Municipio', ''))
         bairro = str(row.get('Bairro', ''))
         pressao = str(row.get('Pressao_MCA', ''))
+        data_reg = str(row.get('Data', ''))
         
-        texto_opcao = f"Linha {linha_planilha}: {mun} - {bairro} ({pressao} MCA)"
-        opcoes_edicao.append(texto_opcao)
-        mapeamento_linhas[texto_opcao] = linha_planilha
+        # Chave descritiva única
+        chave = f"{mun} | {bairro} | {pressao} MCA ({data_reg})"
+        opcoes_edicao.append(chave)
+        mapa_registros[chave] = row.to_dict()
 
-    ponto_para_editar = st.sidebar.selectbox("Selecione para editar:", ["Nenhum"] + opcoes_edicao, key="select_edicao")
+    ponto_para_editar = st.sidebar.selectbox("Selecione o registro:", opcoes_edicao, key="select_edicao_robusta")
     
     if ponto_para_editar != "Nenhum":
-        linha_idx = mapeamento_linhas[ponto_para_editar]
-        row_data = df_edit_check.iloc[linha_idx - 2]
+        dados_selecionados = mapa_registros[ponto_para_editar]
         
-        with st.sidebar.form("form_edicao"):
-            edit_mun = st.text_input("Município", value=str(row_data.get('Municipio', '')))
-            edit_bairro = st.text_input("Bairro", value=str(row_data.get('Bairro', '')))
+        with st.sidebar.form("form_edicao_robusta"):
+            st.write(f"Editando: **{dados_selecionados.get('Municipio')} - {dados_selecionados.get('Bairro')}**")
             
-            # Tratamento seguro para valores numéricos
+            edit_mun = st.text_input("Município", value=str(dados_selecionados.get('Municipio', '')))
+            edit_bairro = st.text_input("Bairro", value=str(dados_selecionados.get('Bairro', '')))
+            
             def parse_float(val):
                 try:
                     return float(str(val).replace(',', '.'))
                 except:
                     return 0.0
 
-            edit_lat = st.number_input("Latitude", format="%.6f", value=parse_float(row_data.get('Latitude', 0.0)))
-            edit_lon = st.number_input("Longitude", format="%.6f", value=parse_float(row_data.get('Longitude', 0.0)))
-            edit_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=parse_float(row_data.get('Pressao_MCA', 0.0)))
+            edit_lat = st.number_input("Latitude", format="%.6f", value=parse_float(dados_selecionados.get('Latitude', 0.0)))
+            edit_lon = st.number_input("Longitude", format="%.6f", value=parse_float(dados_selecionados.get('Longitude', 0.0)))
+            edit_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=parse_float(dados_selecionados.get('Pressao_MCA', 0.0)))
             
-            salvar_edicao = st.form_submit_button("💾 Salvar Alterações")
+            salvar_edicao = st.form_submit_button("💾 Salvar Alterações na Nuvem")
+            
             if salvar_edicao:
-                data_atual = str(row_data.get('Data', datetime.now().strftime("%d/%m/%Y")))
-                
                 try:
-                    # Atualização célula a célula para garantir compatibilidade total com o gspread
-                    worksheet.update_cell(linha_idx, 1, data_atual)
-                    worksheet.update_cell(linha_idx, 2, edit_mun)
-                    worksheet.update_cell(linha_idx, 3, edit_bairro)
-                    worksheet.update_cell(linha_idx, 4, edit_lat)
-                    worksheet.update_cell(linha_idx, 5, edit_lon)
-                    worksheet.update_cell(linha_idx, 6, edit_pressao)
+                    # BUSCA DINÂMICA DA LINHA REAL NO GOOGLE SHEETS PELO CONTEÚDO
+                    # Isso elimina qualquer erro de índice desalinhado pela importação em massa
+                    celula_encontrada = worksheet.find(dados_selecionados.get('Bairro', ''))
                     
-                    # Limpa o cache do Streamlit para forçar a leitura dos novos dados imediatamente
-                    st.cache_data.clear()
-                    
-                    st.sidebar.success(f"Registro da linha {linha_idx} atualizado com sucesso!")
-                    st.rerun()
+                    if celula_encontrada:
+                        linha_real = celula_encontrada.row
+                        data_atual = str(dados_selecionados.get('Data', datetime.now().strftime("%d/%m/%Y")))
+                        
+                        # Atualiza diretamente na linha exata encontrada pelo gspread
+                        worksheet.update_cell(linha_real, 1, data_atual)
+                        worksheet.update_cell(linha_real, 2, edit_mun)
+                        worksheet.update_cell(linha_real, 3, edit_bairro)
+                        worksheet.update_cell(linha_real, 4, edit_lat)
+                        worksheet.update_cell(linha_real, 5, edit_lon)
+                        worksheet.update_cell(linha_real, 6, edit_pressao)
+                        
+                        # Limpa todos os caches do Streamlit
+                        st.cache_data.clear()
+                        
+                        st.sidebar.success(f"Registro atualizado com sucesso na linha {linha_real}!")
+                        st.rerun()
+                    else:
+                        st.sidebar.error("Erro: O registro não foi encontrado na planilha do Google Sheets.")
                 except Exception as e:
-                    st.sidebar.error(f"Erro ao salvar no Google Sheets: {e}")
-
+                    st.sidebar.error(f"Erro crítico ao atualizar: {e}")
 # --- IMPORTAÇÃO EM MASSA E MODELO ---
 st.sidebar.header("📂 Importação em Massa")
 
