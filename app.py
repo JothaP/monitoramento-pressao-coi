@@ -21,6 +21,10 @@ st.set_page_config(
 # Atualização automática a cada 30 segundos
 st_autorefresh(interval=30000, key="datarefresh")
 
+# Coordenada Base Padrão para o carregamento inicial do mapa (Ex: Teresina - PI)
+LAT_BASE = -5.0892
+LON_BASE = -42.8019
+
 # Conexão com Google Sheets usando o ID da planilha e o JSON bruto dos Secrets
 @st.cache_resource
 def conectar_google_sheets():
@@ -282,7 +286,7 @@ if not df_filtrado.empty:
     kpi4.metric("Normais (> 5 MCA)", normais)
     
     if criticos_zero > 0:
-        st.error(f"🚨 **ALERTA COI:** Existen {criticos_zero} ocorrência(s) com pressão zerada (0 MCA) exigindo ação imediata da equipe técnica!")
+        st.error(f"🚨 **ALERTA COI:** Existem {criticos_zero} ocorrência(s) com pressão zerada (0 MCA) exigindo ação imediata da equipe técnica!")
 
 st.divider()
 
@@ -320,6 +324,7 @@ mostrar_rotulos = st.checkbox("🔍 Exibir Rótulos", value=False)
 if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' in df_filtrado.columns:
     valid_df = df_filtrado.dropna(subset=['Latitude', 'Longitude'])
     if not valid_df.empty:
+        # Usa a média dos pontos filtrados, ou recorre ao ponto base definido (LAT_BASE / LON_BASE) se necessário
         centro_lat = valid_df['Latitude'].mean()
         centro_lon = valid_df['Longitude'].mean()
         m = folium.Map(location=[centro_lat, centro_lon], zoom_start=12, tiles="OpenStreetMap")
@@ -350,10 +355,9 @@ if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' i
             popup_html = f"<b>Data:</b> {data_reg}<br><b>Município:</b> {mun_nome}<br><b>Bairro:</b> {bairro_nome}<br><b>Pressão:</b> {pressao} MCA"
             
             if mostrar_rotulos:
-                # Rótulo simplificado contendo apenas Bairro e Pressão
                 icon_html = f"""
                 <div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-                    <div style="background: white; padding: 2px 7px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 11px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
+                    <div style="background: white; padding: 3px 8px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 12px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
                         {bairro_nome} ({pressao} MCA)
                     </div>
                     <div style="background-color: {cor}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.7);"></div>
@@ -375,6 +379,12 @@ if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' i
         folium.LayerControl().add_to(m)
         st_folium(m, width="100%", height=550, returned_objects=[])
     else:
+        # Caso o DataFrame filtrado não tenha coordenadas válidas, inicializa diretamente no ponto base
+        m = folium.Map(location=[LAT_BASE, LON_BASE], zoom_start=12, tiles="OpenStreetMap")
+        st_folium(m, width="100%", height=550, returned_objects=[])
         st.info("Coordenadas válidas não encontradas para exibir no mapa.")
 else:
-   st.info("Nenhum ponto registrado para exibir no mapa.")
+    # Caso não haja dados, inicializa diretamente no ponto base
+    m = folium.Map(location=[LAT_BASE, LON_BASE], zoom_start=12, tiles="OpenStreetMap")
+    st_folium(m, width="100%", height=550, returned_objects=[])
+    st.info("Nenhum ponto registrado para exibir no mapa.")
