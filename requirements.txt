@@ -1,0 +1,10 @@
+streamlit
+streamlit-folium
+streamlit-autorefresh
+pandas
+gspread
+google-auth
+simplekml
+matplotlib
+openpyxl
+folium
