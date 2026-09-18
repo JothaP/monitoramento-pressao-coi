@@ -29,7 +29,7 @@ def conectar_google_sheets():
     credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
     
-    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # ID da planilha
+    spreadsheet_id = "1O3R4w8x-l6LqW0p6cQzX5N8t9R2v4Q7m1Z3x5N8t9R2"  # ID da planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
@@ -39,11 +39,11 @@ except Exception as e:
     st.error(f"Erro ao conectar com o Google Sheets: {e}")
     st.stop()
 
-# Função para carregar os dados
+# Função para carregar os dados (Estrutura atualizada com Data, Municipio, Bairro, Latitude, Longitude, Pressao_MCA)
 def carregar_dados():
     data = worksheet.get_all_records()
     if not data:
-        return pd.DataFrame(columns=["Data", "Bairro", "Latitude", "Longitude", "Pressao_MCA"])
+        return pd.DataFrame(columns=["Data", "Municipio", "Bairro", "Latitude", "Longitude", "Pressao_MCA"])
     return pd.DataFrame(data)
 
 # Título Principal
@@ -53,22 +53,23 @@ st.markdown("Visualização em tempo real de ocorrências de baixa pressão e re
 # --- BARRA LATERAL ---
 st.sidebar.header("➕ Novo Registro de Pressão")
 
-# Formulário com campos limpos (sem valores estáticos pré-preenchidos)
+# Formulário com campos separados para Município e Bairro
 with st.sidebar.form("form_ponto", clear_on_submit=True):
-    bairro = st.text_input("Município / Bairro", value="", placeholder="Ex: Teresina - Centro")
+    municipio = st.text_input("Município", value="", placeholder="Ex: Teresina")
+    bairro = st.text_input("Bairro", value="", placeholder="Ex: Centro")
     lat = st.number_input("Latitude", format="%.6f", value=0.000000, placeholder="Ex: -5.089200")
     lon = st.number_input("Longitude", format="%.6f", value=0.000000, placeholder="Ex: -42.801900")
     pressao = st.number_input("Pressão (MCA)", format="%.2f", value=0.00, placeholder="Ex: 4.50")
     
     enviado = st.form_submit_button("Cadastrar Ponto")
     if enviado:
-        if bairro:
+        if municipio and bairro:
             data_hoje = datetime.now().strftime("%d/%m/%Y")
-            worksheet.append_row([data_hoje, bairro, lat, lon, pressao])
-            st.sidebar.success(f"Ponto em {bairro} adicionado com sucesso!")
+            worksheet.append_row([data_hoje, municipio, bairro, lat, lon, pressao])
+            st.sidebar.success(f"Ponto em {municipio} - {bairro} adicionado com sucesso!")
             st.rerun()
         else:
-            st.sidebar.error("Informe o nome do bairro/município.")
+            st.sidebar.error("Informe o Município e o Bairro.")
 
 st.sidebar.divider()
 
@@ -77,7 +78,7 @@ st.sidebar.header("✏️ Editar Registro")
 df_edit_check = carregar_dados()
 
 if not df_edit_check.empty:
-    opcoes_edicao = [f"Linha {idx+2}: {row.get('Bairro', '')} ({row.get('Pressao_MCA', '')} MCA)" for idx, row in df_edit_check.iterrows()]
+    opcoes_edicao = [f"Linha {idx+2}: {row.get('Municipio', '')} - {row.get('Bairro', '')} ({row.get('Pressao_MCA', '')} MCA)" for idx, row in df_edit_check.iterrows()]
     ponto_para_editar = st.sidebar.selectbox("Selecione para editar:", ["Nenhum"] + opcoes_edicao, key="select_edicao")
     
     if ponto_para_editar != "Nenhum":
@@ -85,7 +86,8 @@ if not df_edit_check.empty:
         row_data = df_edit_check.iloc[linha_idx - 2]
         
         with st.sidebar.form("form_edicao"):
-            edit_bairro = st.text_input("Município / Bairro", value=str(row_data.get('Bairro', '')))
+            edit_mun = st.text_input("Município", value=str(row_data.get('Municipio', '')))
+            edit_bairro = st.text_input("Bairro", value=str(row_data.get('Bairro', '')))
             edit_lat = st.number_input("Latitude", format="%.6f", value=float(row_data.get('Latitude', 0.0)))
             edit_lon = st.number_input("Longitude", format="%.6f", value=float(row_data.get('Longitude', 0.0)))
             edit_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=float(row_data.get('Pressao_MCA', 0.0)))
@@ -93,17 +95,17 @@ if not df_edit_check.empty:
             salvar_edicao = st.form_submit_button("💾 Salvar Alterações")
             if salvar_edicao:
                 data_atual = str(row_data.get('Data', datetime.now().strftime("%d/%m/%Y")))
-                worksheet.update(f"A{linha_idx}:E{linha_idx}", [[data_atual, edit_bairro, edit_lat, edit_lon, edit_pressao]])
+                worksheet.update(f"A{linha_idx}:F{linha_idx}", [[data_atual, edit_mun, edit_bairro, edit_lat, edit_lon, edit_pressao]])
                 st.sidebar.success("Registro atualizado com sucesso!")
                 st.rerun()
 
 st.sidebar.divider()
 
-# --- IMPORTAÇÃO EM MASSA E MODELO (COM MAPEAMENTO DINÂMICO) ---
+# --- IMPORTAÇÃO EM MASSA E MODELO (ATUALIZADO PARA MUN/BAIRRO) ---
 st.sidebar.header("📂 Importação em Massa")
 
-df_modelo = pd.DataFrame(columns=["Data", "Bairro", "Latitude", "Longitude", "Pressao_MCA"])
-df_modelo.loc[0] = [datetime.now().strftime("%d/%m/%Y"), "Teresina - Centro", -5.0892, -42.8019, 4.5]
+df_modelo = pd.DataFrame(columns=["Data", "Municipio", "Bairro", "Latitude", "Longitude", "Pressao_MCA"])
+df_modelo.loc[0] = [datetime.now().strftime("%d/%m/%Y"), "Teresina", "Centro", -5.0892, -42.8019, 4.5]
 csv_modelo = df_modelo.to_csv(index=False).encode('utf-8')
 
 st.sidebar.download_button(
@@ -128,7 +130,7 @@ if arquivo_upload is not None:
             
             contador = 0
             for _, row in df_upload.iterrows():
-                bairro_val, lat_val, lon_val, pressao_val = None, 0.0, 0.0, 0.0
+                mun_val, bairro_val, lat_val, lon_val, pressao_val = "Teresina", "", 0.0, 0.0, 0.0
                 
                 for col in df_upload.columns:
                     c_lower = col.lower()
@@ -136,7 +138,9 @@ if arquivo_upload is not None:
                     if pd.isna(val):
                         continue
                         
-                    if 'bairro' in c_lower or 'município' in c_lower or 'municipio' in c_lower:
+                    if 'município' in c_lower or 'municipio' in c_lower:
+                        mun_val = str(val)
+                    elif 'bairro' in c_lower:
                         bairro_val = str(val)
                     elif 'lat' in c_lower:
                         lat_val = val
@@ -145,6 +149,17 @@ if arquivo_upload is not None:
                     elif 'pressao' in c_lower or 'pressão' in c_lower or 'mca' in c_lower:
                         pressao_val = val
                 
+                # Caso a planilha antiga ainda venha com um campo unificado
+                if not bairro_val:
+                    for col in df_upload.columns:
+                        if 'bairro' in col.lower() or 'local' in col.lower():
+                            texto = str(row[col])
+                            if " - " in texto:
+                                partes = texto.split(" - ", 1)
+                                mun_val, bairro_val = partes[0], partes[1]
+                            else:
+                                bairro_val = texto
+
                 if bairro_val and bairro_val.lower() != 'nan':
                     data_hoje = datetime.now().strftime("%d/%m/%Y")
                     try:
@@ -156,7 +171,7 @@ if arquivo_upload is not None:
                     except:
                         lat_num, lon_num, pressao_num = 0.0, 0.0, 0.0
                         
-                    worksheet.append_row([data_hoje, bairro_val, lat_num, lon_num, pressao_num])
+                    worksheet.append_row([data_hoje, mun_val, bairro_val, lat_num, lon_num, pressao_num])
                     contador += 1
                     
             st.sidebar.success(f"{contador} registros importados com sucesso!")
@@ -166,7 +181,7 @@ if arquivo_upload is not None:
 
 st.sidebar.divider()
 
-# --- EXPORTAÇÃO DE DADOS NA BARRA LATERAL (FORMATO XLS / EXCEL) ---
+# --- EXPORTAÇÃO DE DADOS NA BARRA LATERAL (EXCEL) ---
 st.sidebar.header("💾 Exportação de Dados")
 
 df = carregar_dados()
@@ -179,7 +194,9 @@ if not df.empty:
         c_lower = c.lower()
         if 'data' in c_lower:
             col_map[c] = 'Data'
-        elif 'bairro' in c_lower or 'município' in c_lower:
+        elif 'município' in c_lower or 'municipio' in c_lower:
+            col_map[c] = 'Municipio'
+        elif 'bairro' in c_lower:
             col_map[c] = 'Bairro'
         elif 'lat' in c_lower:
             col_map[c] = 'Latitude'
@@ -192,6 +209,8 @@ if not df.empty:
     
     if 'Data' not in df.columns:
         df['Data'] = datetime.now().strftime("%d/%m/%Y")
+    if 'Municipio' not in df.columns:
+        df['Municipio'] = "Teresina"
 
     for col in ['Latitude', 'Longitude']:
         if col in df.columns:
@@ -206,9 +225,8 @@ if not df.empty:
     if 'Pressao_MCA' in df.columns:
         df['Pressao_MCA'] = pd.to_numeric(df['Pressao_MCA'].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce')
 
-    # Exportação em formato Excel (.xlsx) em memória usando BytesIO
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Plantao_COI')
     excel_data = output.getvalue()
 
@@ -222,28 +240,33 @@ if not df.empty:
     kml = simplekml.Kml()
     for _, row in df.iterrows():
         if pd.notna(row.get('Longitude')) and pd.notna(row.get('Latitude')):
-            kml.newpoint(name=f"{row.get('Bairro', '')} - {row.get('Pressao_MCA', '')} MCA", coords=[(row['Longitude'], row['Latitude'])])
+            kml.newpoint(name=f"{row.get('Municipio', '')} - {row.get('Bairro', '')} ({row.get('Pressao_MCA', '')} MCA)", coords=[(row['Longitude'], row['Latitude'])])
     kmz_path = "pontos.kmz"
     kml.savekmz(kmz_path)
     with open(kmz_path, "rb") as f:
         st.sidebar.download_button("🗺️ Baixar Arquivo KMZ", data=f, file_name="pontos_baixa_pressao.kmz", mime="application/vnd.google-earth.kmz")
 
-# --- FILTROS NA ÁREA PRINCIPAL ---
+# --- FILTROS NA ÁREA PRINCIPAL (REFINADOS) ---
 if not df.empty:
     st.subheader("🔍 Filtros de Visualização")
-    f_col1, f_col2 = st.columns(2)
+    f_col1, f_col2, f_col3 = st.columns(3)
     
     datas_disponiveis = sorted(df['Data'].dropna().unique().tolist())
     data_selecionada = f_col1.selectbox("Filtrar por Data", ["Todas"] + datas_disponiveis)
     
-    municipios_disponiveis = sorted(df['Bairro'].dropna().unique().tolist())
-    municipio_selecionado = f_col2.selectbox("Filtrar por Município / Bairro", ["Todos"] + municipios_disponiveis)
+    municipios_disponiveis = sorted(df['Municipio'].dropna().unique().tolist())
+    municipio_selecionado = f_col2.selectbox("Filtrar por Município", ["Todos"] + municipios_disponiveis)
+    
+    bairros_disponiveis = sorted(df['Bairro'].dropna().unique().tolist())
+    bairro_selecionado = f_col3.selectbox("Filtrar por Bairro", ["Todos"] + bairros_disponiveis)
     
     df_filtrado = df.copy()
     if data_selecionada != "Todas":
         df_filtrado = df_filtrado[df_filtrado['Data'] == data_selecionada]
     if municipio_selecionado != "Todos":
-        df_filtrado = df_filtrado[df_filtrado['Bairro'] == municipio_selecionado]
+        df_filtrado = df_filtrado[df_filtrado['Municipio'] == municipio_selecionado]
+    if bairro_selecionado != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Bairro'] == bairro_selecionado]
 else:
     df_filtrado = df.copy()
 
@@ -279,8 +302,8 @@ with col1:
 
 with col2:
     st.subheader("⚙️ Excluir Ponto")
-    if not df.empty and 'Bairro' in df.columns and 'Pressao_MCA' in df.columns:
-        opcoes = [f"Linha {idx+2}: {row['Bairro']} ({row['Pressao_MCA']} MCA - {row.get('Data', '')})" for idx, row in df.iterrows()]
+    if not df.empty and 'Municipio' in df.columns and 'Bairro' in df.columns and 'Pressao_MCA' in df.columns:
+        opcoes = [f"Linha {idx+2}: {row['Municipio']} - {row['Bairro']} ({row['Pressao_MCA']} MCA - {row.get('Data', '')})" for idx, row in df.iterrows()]
         ponto_selecionado = st.selectbox("Selecione para remover:", opcoes)
         
         if st.button("🗑️ Confirmar Exclusão", type="primary"):
@@ -315,6 +338,7 @@ if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' i
 
         for _, row in valid_df.iterrows():
             pressao = row.get('Pressao_MCA', 0.0)
+            mun_nome = row.get('Municipio', '')
             bairro_nome = row.get('Bairro', 'Desconhecido')
             data_reg = row.get('Data', '')
             
@@ -325,13 +349,13 @@ if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' i
             else:
                 cor = "blue"
             
-            popup_html = f"<b>Data:</b> {data_reg}<br><b>Bairro:</b> {bairro_nome}<br><b>Pressão:</b> {pressao} MCA"
+            popup_html = f"<b>Data:</b> {data_reg}<br><b>Município:</b> {mun_nome}<br><b>Bairro:</b> {bairro_nome}<br><b>Pressão:</b> {pressao} MCA"
             
             if mostrar_rotulos:
                 icon_html = f"""
                 <div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
                     <div style="background: white; padding: 3px 8px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 12px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
-                        {bairro_nome} ({pressao} MCA)
+                        {mun_nome} - {bairro_nome} ({pressao} MCA)
                     </div>
                     <div style="background-color: {cor}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.7);"></div>
                 </div>
@@ -345,7 +369,7 @@ if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' i
                 folium.Marker(
                     location=[row['Latitude'], row['Longitude']],
                     popup=folium.Popup(popup_html, max_width=250),
-                    tooltip=f"{bairro_nome} ({pressao} MCA)",
+                    tooltip=f"{mun_nome} - {bairro_nome} ({pressao} MCA)",
                     icon=folium.Icon(color=cor, icon="tint", prefix="fa")
                 ).add_to(m)
 
