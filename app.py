@@ -7,6 +7,7 @@ import folium
 from streamlit_folium import st_folium
 import os
 import simplekml
+from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 # Configuração da Página
@@ -27,7 +28,7 @@ def conectar_google_sheets():
     credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
     
-    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # Substitua se necessário pelo ID exato da sua planilha
+    spreadsheet_id = "1O3R4w8x-l6LqW0p6cQzX5N8t9R2v4Q7m1Z3x5N8t9R2"  # ID da planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
@@ -41,31 +42,69 @@ except Exception as e:
 def carregar_dados():
     data = worksheet.get_all_records()
     if not data:
-        return pd.DataFrame(columns=["Bairro", "Latitude", "Longitude", "Pressao_MCA"])
+        return pd.DataFrame(columns=["Data", "Bairro", "Latitude", "Longitude", "Pressao_MCA"])
     return pd.DataFrame(data)
 
 # Título Principal
 st.title("💧 Painel de Monitoramento de Baixa Pressão - COI")
 st.markdown("Visualização em tempo real de ocorrências de baixa pressão e rede de abastecimento.")
 
-# Barra lateral para cadastro rápido via formulário integrado
+# --- BARRA LATERAL ---
 st.sidebar.header("➕ Novo Registro de Pressão")
+
+# Formulário com campos limpos (sem valores estáticos pré-preenchidos)
 with st.sidebar.form("form_ponto", clear_on_submit=True):
-    bairro = st.text_input("Município / Bairro")
-    lat = st.number_input("Latitude", format="%.6f", value=-5.0892)
-    lon = st.number_input("Longitude", format="%.6f", value=-42.8019)
-    pressao = st.number_input("Pressão (MCA)", format="%.2f", value=4.5)
+    bairro = st.text_input("Município / Bairro", value="", placeholder="Ex: Teresina - Centro")
+    lat = st.number_input("Latitude", format="%.6f", value=0.000000, placeholder="Ex: -5.089200")
+    lon = st.number_input("Longitude", format="%.6f", value=0.000000, placeholder="Ex: -42.801900")
+    pressao = st.number_input("Pressão (MCA)", format="%.2f", value=0.00, placeholder="Ex: 4.50")
     
     enviado = st.form_submit_button("Cadastrar Ponto")
     if enviado:
         if bairro:
-            worksheet.append_row([bairro, lat, lon, pressao])
+            # Data automática no formato dd/mm/aaaa correspondente ao dia de hoje
+            data_hoje = datetime.now().strftime("%d/%m/%Y")
+            worksheet.append_row([data_hoje, bairro, lat, lon, pressao])
             st.sidebar.success(f"Ponto em {bairro} adicionado com sucesso!")
             st.rerun()
         else:
             st.sidebar.error("Informe o nome do bairro/município.")
 
-# Carregar e normalizar dados
+st.sidebar.divider()
+
+# Upload de Planilha em Massa na Barra Lateral
+st.sidebar.header("📂 Importação em Massa")
+arquivo_upload = st.sidebar.file_uploader("Enviar Planilha (CSV ou XLSX)", type=["csv", "xlsx"])
+
+if arquivo_upload is not None:
+    try:
+        if arquivo_upload.name.endswith('.csv'):
+            df_upload = pd.read_csv(arquivo_upload)
+        else:
+            df_upload = pd.read_excel(arquivo_upload)
+            
+        if st.sidebar.button("📤 Processar e Enviar para Planilha"):
+            data_hoje = datetime.now().strftime("%d/%m/%Y")
+            contador = 0
+            for _, row in df_upload.iterrows():
+                b = row.get('Bairro', row.get('Município', ''))
+                l = row.get('Latitude', 0)
+                lg = row.get('Longitude', 0)
+                p = row.get('Pressao_MCA', row.get('Pressão', 0))
+                if pd.notna(b):
+                    worksheet.append_row([data_hoje, str(b), float(l), float(lg), float(p)])
+                    contador += 1
+            st.sidebar.success(f"{contador} registros importados com sucesso!")
+            st.rerun()
+    except Exception as e:
+        st.sidebar.error(f"Erro ao processar arquivo: {e}")
+
+st.sidebar.divider()
+
+# Botões de Exportação na Barra Lateral (logo abaixo da importação)
+st.sidebar.header("💾 Exportação de Dados")
+
+# Carregar e normalizar dados globais para exportação e uso no painel
 df = carregar_dados()
 
 if not df.empty:
@@ -74,7 +113,9 @@ if not df.empty:
     col_map = {}
     for c in df.columns:
         c_lower = c.lower()
-        if 'bairro' in c_lower or 'município' in c_lower:
+        if 'data' in c_lower:
+            col_map[c] = 'Data'
+        elif 'bairro' in c_lower or 'município' in c_lower:
             col_map[c] = 'Bairro'
         elif 'lat' in c_lower:
             col_map[c] = 'Latitude'
@@ -85,6 +126,10 @@ if not df.empty:
             
     df = df.rename(columns=col_map)
     
+    # Garantir coluna de data caso não exista na planilha antiga
+    if 'Data' not in df.columns:
+        df['Data'] = datetime.now().strftime("%d/%m/%Y")
+
     # Conversão robusta de coordenadas
     for col in ['Latitude', 'Longitude']:
         if col in df.columns:
@@ -99,20 +144,77 @@ if not df.empty:
     if 'Pressao_MCA' in df.columns:
         df['Pressao_MCA'] = pd.to_numeric(df['Pressao_MCA'].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce')
 
-# Visualização de Tabela e Exclusão
+    # Botões na barra lateral
+    csv_data = df.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button("📁 Baixar Planilha (CSV)", data=csv_data, file_name="pontos_baixa_pressao.csv", mime="text/csv")
+
+    kml = simplekml.Kml()
+    for _, row in df.iterrows():
+        if pd.notna(row.get('Longitude')) and pd.notna(row.get('Latitude')):
+            kml.newpoint(name=f"{row.get('Bairro', '')} - {row.get('Pressao_MCA', '')} MCA", coords=[(row['Longitude'], row['Latitude'])])
+    kmz_path = "pontos.kmz"
+    kml.savekmz(kmz_path)
+    with open(kmz_path, "rb") as f:
+        st.sidebar.download_button("🗺️ Baixar Arquivo KMZ", data=f, file_name="pontos_baixa_pressao.kmz", mime="application/vnd.google-earth.kmz")
+
+# --- FILTROS NA ÁREA PRINCIPAL ---
+if not df.empty:
+    st.subheader("🔍 Filtros de Visualização")
+    f_col1, f_col2 = st.columns(2)
+    
+    # Filtro por Data
+    datas_disponiveis = sorted(df['Data'].dropna().unique().tolist())
+    data_selecionada = f_col1.selectbox("Filtrar por Data", ["Todas"] + datas_disponiveis)
+    
+    # Filtro por Município / Bairro
+    municipios_disponiveis = sorted(df['Bairro'].dropna().unique().tolist())
+    municipio_selecionado = f_col2.selectbox("Filtrar por Município / Bairro", ["Todos"] + municipios_disponiveis)
+    
+    # Aplicar filtros
+    df_filtrado = df.copy()
+    if data_selecionada != "Todas":
+        df_filtrado = df_filtrado[df_filtrado['Data'] == data_selecionada]
+    if municipio_selecionado != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Bairro'] == municipio_selecionado]
+else:
+    df_filtrado = df.copy()
+
+# --- MÉTRICAS RÁPIDAS (KPIs) ---
+if not df_filtrado.empty:
+    total_pontos = len(df_filtrado)
+    criticos_zero = len(df_filtrado[df_filtrado['Pressao_MCA'] == 0])
+    atencao = len(df_filtrado[(df_filtrado['Pressao_MCA'] > 0) & (df_filtrado['Pressao_MCA'] <= 5)])
+    normais = len(df_filtrado[df_filtrado['Pressao_MCA'] > 5])
+    
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi1.metric("Total de Ocorrências", total_pontos)
+    kpi2.metric("Críticos (0 MCA)", criticos_zero, delta_color="inverse")
+    kpi3.metric("Em Atenção (≤ 5 MCA)", atencao)
+    kpi4.metric("Normais (> 5 MCA)", normais)
+    
+    # Alerta Automático de Pontos Críticos (0 MCA)
+    if criticos_zero > 0:
+        st.error(f"🚨 **ALERTA COI:** Existem {criticos_zero} ocorrência(s) com pressão zerada (0 MCA) exigindo ação imediata da equipe técnica!")
+
+st.divider()
+
+# --- VISUALIZAÇÃO DE TABELA E EXCLUSÃO ---
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.subheader("📋 Registro de Pontos do Dia")
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
+    st.subheader("📋 Registro de Pontos do Plantão")
+    if not df_filtrado.empty:
+        # Ajustar índice da tabela para começar em 1 em vez de 0
+        df_exibicao = df_filtrado.reset_index(drop=True)
+        df_exibicao.index = df_exibicao.index + 1
+        st.dataframe(df_exibicao, use_container_width=True)
     else:
-        st.info("Nenhum ponto registrado no momento.")
+        st.info("Nenhum ponto encontrado com os filtros selecionados.")
 
 with col2:
     st.subheader("⚙️ Excluir Ponto")
     if not df.empty and 'Bairro' in df.columns and 'Pressao_MCA' in df.columns:
-        opcoes = [f"Linha {idx+2}: {row['Bairro']} ({row['Pressao_MCA']} MCA)" for idx, row in df.iterrows()]
+        opcoes = [f"Linha {idx+2}: {row['Bairro']} ({row['Pressao_MCA']} MCA - {row.get('Data', '')})" for idx, row in df.iterrows()]
         ponto_selecionado = st.selectbox("Selecione para remover:", opcoes)
         
         if st.button("🗑️ Confirmar Exclusão", type="primary"):
@@ -123,14 +225,13 @@ with col2:
 
 st.divider()
 
-# Controles do Mapa
+# --- MAPA INTERATIVO COM FOLIUM ---
 st.subheader("🗺️ Mapa de Baixa Pressão em Tempo Real")
 
-# Botão compacto "Exibir Rótulos"
 mostrar_rotulos = st.checkbox("🔍 Exibir Rótulos", value=False)
 
-if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
-    valid_df = df.dropna(subset=['Latitude', 'Longitude'])
+if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' in df_filtrado.columns:
+    valid_df = df_filtrado.dropna(subset=['Latitude', 'Longitude'])
     if not valid_df.empty:
         centro_lat = valid_df['Latitude'].mean()
         centro_lon = valid_df['Longitude'].mean()
@@ -149,11 +250,9 @@ if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
         for _, row in valid_df.iterrows():
             pressao = row.get('Pressao_MCA', 0.0)
             bairro_nome = row.get('Bairro', 'Desconhecido')
+            data_reg = row.get('Data', '')
             
-            # Cores conforme regra solicitada:
-            # Vermelho == 0
-            # Amarelo <= 5
-            # Azul > 5
+            # Regra de Cores: Vermelho (==0), Amarelo (<=5), Azul (>5)
             if pressao == 0:
                 cor = "red"
             elif pressao <= 5:
@@ -161,16 +260,15 @@ if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
             else:
                 cor = "blue"
             
-            popup_html = f"<b>Bairro:</b> {bairro_nome}<br><b>Pressão:</b> {pressao} MCA"
+            popup_html = f"<b>Data:</b> {data_reg}<br><b>Bairro:</b> {bairro_nome}<br><b>Pressão:</b> {pressao} MCA"
             
             if mostrar_rotulos:
-                # Estilização compacta em DivIcon para evitar sobreposição excessiva e manter proporção no zoom
                 icon_html = f"""
                 <div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-                    <div style="background: white; padding: 3px 8px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 14px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
+                    <div style="background: white; padding: 3px 8px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 12px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
                         {bairro_nome} ({pressao} MCA)
                     </div>
-                    <div style="background-color: {cor}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.7);"></div>
+                    <div style="background-color: {cor}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.7);"></div>
                 </div>
                 """
                 custom_icon = folium.DivIcon(html=icon_html, icon_size=(1, 1), icon_anchor=(0, 0))
@@ -192,22 +290,3 @@ if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
         st.info("Coordenadas válidas não encontradas para exibir no mapa.")
 else:
    st.info("Nenhum ponto registrado para exibir no mapa.")
-
-st.divider()
-
-# Seção de Exportação (CSV e KMZ)
-st.subheader("💾 Exportação de Dados")
-col_ex1, col_ex2 = st.columns(2)
-
-if not df.empty:
-    csv_data = df.to_csv(index=False).encode('utf-8')
-    col_ex1.download_button("📁 Baixar Planilha (CSV)", data=csv_data, file_name="pontos_baixa_pressao.csv", mime="text/csv")
-
-    kml = simplekml.Kml()
-    for _, row in df.iterrows():
-        if pd.notna(row.get('Longitude')) and pd.notna(row.get('Latitude')):
-            kml.newpoint(name=f"{row.get('Bairro', '')} - {row.get('Pressao_MCA', '')} MCA", coords=[(row['Longitude'], row['Latitude'])])
-    kmz_path = "pontos.kmz"
-    kml.savekmz(kmz_path)
-    with open(kmz_path, "rb") as f:
-        col_ex2.download_button("🗺️ Baixar Arquivo KMZ", data=f, file_name="pontos_baixa_pressao.kmz", mime="application/vnd.google-earth.kmz")
