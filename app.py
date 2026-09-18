@@ -81,27 +81,45 @@ st.sidebar.header("✏️ Editar Registro")
 df_edit_check = carregar_dados()
 
 if not df_edit_check.empty:
-    opcoes_edicao = [f"Linha {idx+2}: {row.get('Municipio', '')} - {row.get('Bairro', '')} ({row.get('Pressao_MCA', '')} MCA)" for idx, row in df_edit_check.iterrows()]
+    df_edit_check.columns = [col.strip() for col in df_edit_check.columns]
+    
+    # Criamos uma lista de opções vinculando explicitamente a linha real do Google Sheets (1 cabeçalho + índice 0 = linha 2)
+    opcoes_edicao = []
+    mapeamento_linhas = {}
+    
+    for idx, row in df_edit_check.iterrows():
+        # A linha real no Google Sheets começa na linha 2 (por isso idx + 2)
+        linha_planilha = idx + 2
+        mun = row.get('Municipio', '')
+        bairro = row.get('Bairro', '')
+        pressao = row.get('Pressao_MCA', '')
+        
+        texto_opcao = f"Linha {linha_planilha}: {mun} - {bairro} ({pressao} MCA)"
+        opcoes_edicao.append(texto_opcao)
+        mapeamento_linhas[texto_opcao] = linha_planilha
+
     ponto_para_editar = st.sidebar.selectbox("Selecione para editar:", ["Nenhum"] + opcoes_edicao, key="select_edicao")
     
     if ponto_para_editar != "Nenhum":
-        linha_idx = int(ponto_para_editar.split(":")[0].replace("Linha ", ""))
+        linha_idx = mapeamento_linhas[ponto_para_editar]
+        # Recupera os dados direto da linha correspondente no DataFrame original
         row_data = df_edit_check.iloc[linha_idx - 2]
         
         with st.sidebar.form("form_edicao"):
             edit_mun = st.text_input("Município", value=str(row_data.get('Municipio', '')))
             edit_bairro = st.text_input("Bairro", value=str(row_data.get('Bairro', '')))
-            edit_lat = st.number_input("Latitude", format="%.6f", value=float(row_data.get('Latitude', 0.0)))
-            edit_lon = st.number_input("Longitude", format="%.6f", value=float(row_data.get('Longitude', 0.0)))
-            edit_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=float(row_data.get('Pressao_MCA', 0.0)))
+            edit_lat = st.number_input("Latitude", format="%.6f", value=float(str(row_data.get('Latitude', 0.0)).replace(',', '.')))
+            edit_lon = st.number_input("Longitude", format="%.6f", value=float(str(row_data.get('Longitude', 0.0)).replace(',', '.')))
+            edit_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=float(str(row_data.get('Pressao_MCA', 0.0)).replace(',', '.')))
             
             salvar_edicao = st.form_submit_button("💾 Salvar Alterações")
             if salvar_edicao:
                 data_atual = str(row_data.get('Data', datetime.now().strftime("%d/%m/%Y")))
-                # Atualização corrigida para o Gspread (range e valores em matriz)
                 valores_atualizados = [[data_atual, edit_mun, edit_bairro, edit_lat, edit_lon, edit_pressao]]
+                
+                # Executa a atualização na linha exata da planilha do Google Sheets
                 worksheet.update(f"A{linha_idx}:F{linha_idx}", valores_atualizados)
-                st.sidebar.success("Registro atualizado com sucesso!")
+                st.sidebar.success(f"Registro da linha {linha_idx} atualizado com sucesso!")
                 st.rerun()
 
 st.sidebar.divider()
