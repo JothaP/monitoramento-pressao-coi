@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # Atualização automática a cada 30 segundos
-st_autorefresh(interval=30000, key="datarefresh")
+st_autorefresh(interval=10000, key="datarefresh")
 
 # Coordenada Base Fixa (Centro de Teresina - PI)
 LAT_BASE = -5.0892
@@ -98,7 +98,9 @@ if not df_edit_check.empty:
             salvar_edicao = st.form_submit_button("💾 Salvar Alterações")
             if salvar_edicao:
                 data_atual = str(row_data.get('Data', datetime.now().strftime("%d/%m/%Y")))
-                worksheet.update(f"A{linha_idx}:F{linha_idx}", [[data_atual, edit_mun, edit_bairro, edit_lat, edit_lon, edit_pressao]])
+                # Atualização corrigida para o Gspread (range e valores em matriz)
+                valores_atualizados = [[data_atual, edit_mun, edit_bairro, edit_lat, edit_lon, edit_pressao]]
+                worksheet.update(f"A{linha_idx}:F{linha_idx}", valores_atualizados)
                 st.sidebar.success("Registro atualizado com sucesso!")
                 st.rerun()
 
