@@ -7,7 +7,6 @@ import folium
 from streamlit_folium import st_folium
 import os
 import simplekml
-import matplotlib.pyplot as plt
 from streamlit_autorefresh import st_autorefresh
 
 # Configuração da Página
@@ -28,7 +27,7 @@ def conectar_google_sheets():
     credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
     
-    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # Substitua se necessário pelo ID exato da sua planilha
+    spreadsheet_id = "1O3R4w8x-l6LqW0p6cQzX5N8t9R2v4Q7m1Z3x5N8t9R2"  # Substitua se necessário pelo ID exato da sua planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
@@ -124,8 +123,11 @@ with col2:
 
 st.divider()
 
-# Mapa Interativo com Folium
+# Controles do Mapa
 st.subheader("🗺️ Mapa de Baixa Pressão em Tempo Real")
+
+# Botão compacto "Exibir Rótulos"
+mostrar_rotulos = st.checkbox("🔍 Exibir Rótulos", value=False)
 
 if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
     valid_df = df.dropna(subset=['Latitude', 'Longitude'])
@@ -147,19 +149,45 @@ if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
         for _, row in valid_df.iterrows():
             pressao = row.get('Pressao_MCA', 0.0)
             bairro_nome = row.get('Bairro', 'Desconhecido')
-            cor = "red" if pressao < 5.0 else "orange" if pressao < 10.0 else "blue"
+            
+            # Cores conforme regra solicitada:
+            # Vermelho == 0
+            # Amarelo <= 5
+            # Azul > 5
+            if pressao == 0:
+                cor = "red"
+            elif pressao <= 5:
+                cor = "orange"
+            else:
+                cor = "blue"
             
             popup_html = f"<b>Bairro:</b> {bairro_nome}<br><b>Pressão:</b> {pressao} MCA"
             
-            folium.Marker(
-                location=[row['Latitude'], row['Longitude']],
-                popup=folium.Popup(popup_html, max_width=250),
-                tooltip=f"{bairro_nome} ({pressao} MCA)",
-                icon=folium.Icon(color=cor, icon="tint", prefix="fa")
-            ).add_to(m)
+            if mostrar_rotulos:
+                # Estilização compacta em DivIcon para evitar sobreposição excessiva e manter proporção no zoom
+                icon_html = f"""
+                <div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
+                    <div style="background: white; padding: 2px 6px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 10px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
+                        {bairro_nome} ({pressao} MCA)
+                    </div>
+                    <div style="background-color: {cor}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.7);"></div>
+                </div>
+                """
+                custom_icon = folium.DivIcon(html=icon_html, icon_size=(1, 1), icon_anchor=(0, 0))
+                folium.Marker(
+                    location=[row['Latitude'], row['Longitude']],
+                    icon=custom_icon
+                ).add_to(m)
+            else:
+                folium.Marker(
+                    location=[row['Latitude'], row['Longitude']],
+                    popup=folium.Popup(popup_html, max_width=250),
+                    tooltip=f"{bairro_nome} ({pressao} MCA)",
+                    icon=folium.Icon(color=cor, icon="tint", prefix="fa")
+                ).add_to(m)
 
         folium.LayerControl().add_to(m)
-        st_folium(m, width="100%", height=500, returned_objects=[])
+        st_folium(m, width="100%", height=550, returned_objects=[])
     else:
         st.info("Coordenadas válidas não encontradas para exibir no mapa.")
 else:
@@ -167,16 +195,14 @@ else:
 
 st.divider()
 
-# Seção de Exportação
-st.subheader("💾 Arquivamento e Exportação")
-col_ex1, col_ex2, col_ex3 = st.columns(3)
+# Seção de Exportação (CSV e KMZ)
+st.subheader("💾 Exportação de Dados")
+col_ex1, col_ex2 = st.columns(2)
 
 if not df.empty:
-    # CSV
     csv_data = df.to_csv(index=False).encode('utf-8')
     col_ex1.download_button("📁 Baixar Planilha (CSV)", data=csv_data, file_name="pontos_baixa_pressao.csv", mime="text/csv")
 
-    # KMZ
     kml = simplekml.Kml()
     for _, row in df.iterrows():
         if pd.notna(row.get('Longitude')) and pd.notna(row.get('Latitude')):
@@ -185,31 +211,3 @@ if not df.empty:
     kml.savekmz(kmz_path)
     with open(kmz_path, "rb") as f:
         col_ex2.download_button("🗺️ Baixar Arquivo KMZ", data=f, file_name="pontos_baixa_pressao.kmz", mime="application/vnd.google-earth.kmz")
-
-    # PNG - Mapa Geográfico Estilizado via Matplotlib
-    if not valid_df.empty:
-        fig, ax = plt.subplots(figsize=(9, 6))
-        
-        # Plotar os pontos usando Longitude e Latitude reais com cores baseadas na pressão
-        sc = ax.scatter(valid_df['Longitude'], valid_df['Latitude'], c=valid_df['Pressao_MCA'], cmap='autumn', s=180, edgecolors='black', zorder=5)
-        cbar = plt.colorbar(sc, label='Pressão (MCA)')
-        
-        # Rótulos para cada ponto
-        for _, row in valid_df.iterrows():
-            ax.annotate(f"{row['Bairro']}\n({row['Pressao_MCA']} MCA)", 
-                        (row['Longitude'], row['Latitude']), 
-                        xytext=(0, 8), textcoords="offset points", 
-                        ha='center', fontsize=9, fontweight='bold', 
-                        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.9), zorder=6)
-
-        plt.title('Mapa Geográfico de Ocorrências - Baixa Pressão (COI)', fontsize=12, fontweight='bold', pad=15)
-        plt.xlabel('Longitude', fontsize=10)
-        plt.ylabel('Latitude', fontsize=10)
-        plt.grid(True, linestyle='--', alpha=0.6)
-        
-        png_path = "mapa_pressao.png"
-        plt.savefig(png_path, bbox_inches='tight', dpi=200)
-        plt.close()
-
-        with open(png_path, "rb") as f:
-            col_ex3.download_button("🖼️ Baixar Mapa PNG", data=f, file_name="mapa_pressao.png", mime="image/png")
