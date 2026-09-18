@@ -27,7 +27,7 @@ def conectar_google_sheets():
     credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
     
-    spreadsheet_id = "1O3R4w8x-l6LqW0p6cQzX5N8t9R2v4Q7m1Z3x5N8t9R2"  # Substitua se necessário pelo ID exato da sua planilha
+    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # Substitua se necessário pelo ID exato da sua planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
