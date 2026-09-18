@@ -17,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Atualização automática a cada 30 segundos (30000 milissegundos)
+# Atualização automática a cada 30 segundos
 st_autorefresh(interval=30000, key="datarefresh")
 
 # Conexão com Google Sheets usando o ID da planilha e o JSON bruto dos Secrets
@@ -29,7 +29,7 @@ def conectar_google_sheets():
     gc = gspread.authorize(credentials)
     
     # ID da planilha do Google Sheets
-    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # Substitua se necessário pelo ID exato da sua planilha
+    spreadsheet_id = "1O3R4w8x-l6LqW0p6cQzX5N8t9R2v4Q7m1Z3x5N8t9R2"  # Substitua se necessário pelo ID exato da sua planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
@@ -88,11 +88,20 @@ if not df.empty:
             
     df = df.rename(columns=col_map)
     
-    # Correção robusta para padrão numérico brasileiro (substitui vírgula por ponto)
-    for col in ['Latitude', 'Longitude', 'Pressao_MCA']:
+    # Conversão robusta de coordenadas (tratando vírgula, ponto e números inteiros multiplicados)
+    for col in ['Latitude', 'Longitude']:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            # Converter para string limpa
+            s = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip()
+            df[col] = pd.to_numeric(s, errors='coerce')
+            # Se vier sem ponto decimal e estourar a faixa real, ajusta automaticamente
+            if col == 'Latitude':
+                df.loc[df[col].abs() > 90, col] = df.loc[df[col].abs() > 90, col] / 100000.0
+            if col == 'Longitude':
+                df.loc[df[col].abs() > 180, col] = df.loc[df[col].abs() > 180, col] / 100000.0
+
+    if 'Pressao_MCA' in df.columns:
+        df['Pressao_MCA'] = pd.to_numeric(df['Pressao_MCA'].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce')
 
 # Visualização de Tabela e Exclusão
 col1, col2 = st.columns([2, 1])
