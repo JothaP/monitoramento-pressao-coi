@@ -28,8 +28,7 @@ def conectar_google_sheets():
     credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
     
-    # ID da planilha do Google Sheets
-    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # Substitua se necessário pelo ID exato da sua planilha
+    spreadsheet_id = "1O3R4w8x-l6LqW0p6cQzX5N8t9R2v4Q7m1Z3x5N8t9R2"  # Substitua se necessário pelo ID exato da sua planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
@@ -73,7 +72,6 @@ df = carregar_dados()
 if not df.empty:
     df.columns = [col.strip() for col in df.columns]
     
-    # Mapeamento flexível de colunas
     col_map = {}
     for c in df.columns:
         c_lower = c.lower()
@@ -88,19 +86,15 @@ if not df.empty:
             
     df = df.rename(columns=col_map)
     
-    # Conversão robusta e segura para float
+    # Conversão robusta de coordenadas
     for col in ['Latitude', 'Longitude']:
         if col in df.columns:
-            # Converte valores para string limpa e depois para numérico float
             s = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip()
             valores_num = pd.to_numeric(s, errors='coerce')
-            
-            # Ajuste automático caso o valor venha sem ponto decimal
             if col == 'Latitude':
                 valores_num = valores_num.apply(lambda x: x / 100000.0 if abs(x) > 90 else x)
             if col == 'Longitude':
                 valores_num = valores_num.apply(lambda x: x / 100000.0 if abs(x) > 180 else x)
-                
             df[col] = valores_num
 
     if 'Pressao_MCA' in df.columns:
@@ -140,7 +134,6 @@ if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
         centro_lon = valid_df['Longitude'].mean()
         m = folium.Map(location=[centro_lat, centro_lon], zoom_start=12, tiles="OpenStreetMap")
         
-        # Adicionar polígonos de bairros se o arquivo existir
         if os.path.exists("bairros.geojson"):
             with open("bairros.geojson", "r", encoding="utf-8") as f:
                 geojson_bairros = json.load(f)
@@ -151,7 +144,6 @@ if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
                 highlight_function=lambda feature: {'weight': 3, 'fillOpacity': 0.3}
             ).add_to(m)
 
-        # Marcadores dos pontos
         for _, row in valid_df.iterrows():
             pressao = row.get('Pressao_MCA', 0.0)
             bairro_nome = row.get('Bairro', 'Desconhecido')
@@ -171,11 +163,9 @@ if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
     else:
         st.info("Coordenadas válidas não encontradas para exibir no mapa.")
 else:
-    st.info("Nenhum ponto registrado para exibir no mapa.")
+   st.info("Nenhum ponto registrado para exibir no mapa.")
 
 st.divider()
-
-import contextily as ctx
 
 # Seção de Exportação
 st.subheader("💾 Arquivamento e Exportação")
@@ -196,31 +186,26 @@ if not df.empty:
     with open(kmz_path, "rb") as f:
         col_ex2.download_button("🗺️ Baixar Arquivo KMZ", data=f, file_name="pontos_baixa_pressao.kmz", mime="application/vnd.google-earth.kmz")
 
-    # PNG - Mapa Cartográfico Real com Fundo OpenStreetMap
+    # PNG - Mapa Geográfico Estilizado via Matplotlib
     if not valid_df.empty:
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(9, 6))
         
-        # Converter coordenadas lat/lon (EPSG:4326) para Web Mercator (EPSG:3857) exigido pelo contextily
-        from pyproj import Transformer
-        transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
-        x_coords, y_coords = transformer.transform(valid_df['Longitude'].values, valid_df['Latitude'].values)
+        # Plotar os pontos usando Longitude e Latitude reais com cores baseadas na pressão
+        sc = ax.scatter(valid_df['Longitude'], valid_df['Latitude'], c=valid_df['Pressao_MCA'], cmap='autumn', s=180, edgecolors='black', zorder=5)
+        cbar = plt.colorbar(sc, label='Pressão (MCA)')
         
-        # Plotar os pontos no Matplotlib usando as coordenadas projetadas
-        sc = ax.scatter(x_coords, y_coords, c=valid_df['Pressao_MCA'], cmap='autumn', s=150, edgecolors='black', zorder=5)
-        plt.colorbar(sc, label='Pressão (MCA)')
-        
-        # Adicionar rótulos nos pontos
-        for x, y, bairro, pressao in zip(x_coords, y_coords, valid_df['Bairro'], valid_df['Pressao_MCA']):
-            ax.annotate(f"{bairro}\n({pressao} MCA)", (x, y), xytext=(0, 8), textcoords="offset points", ha='center', fontsize=8, fontweight='bold', bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8), zorder=6)
+        # Rótulos para cada ponto
+        for _, row in valid_df.iterrows():
+            ax.annotate(f"{row['Bairro']}\n({row['Pressao_MCA']} MCA)", 
+                        (row['Longitude'], row['Latitude']), 
+                        xytext=(0, 8), textcoords="offset points", 
+                        ha='center', fontsize=9, fontweight='bold', 
+                        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.9), zorder=6)
 
-        plt.title('Mapa de Baixa Pressão - COI', fontsize=12, fontweight='bold')
-        ax.set_axis_off() # Remove os eixos numéricos para parecer um mapa de verdade
-        
-        # Adicionar o mapa de fundo real do OpenStreetMap
-        try:
-            ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, zoom=13)
-        except Exception:
-            pass # Fallback caso haja falha de conexão com o tile server
+        plt.title('Mapa Geográfico de Ocorrências - Baixa Pressão (COI)', fontsize=12, fontweight='bold', pad=15)
+        plt.xlabel('Longitude', fontsize=10)
+        plt.ylabel('Latitude', fontsize=10)
+        plt.grid(True, linestyle='--', alpha=0.6)
         
         png_path = "mapa_pressao.png"
         plt.savefig(png_path, bbox_inches='tight', dpi=200)
