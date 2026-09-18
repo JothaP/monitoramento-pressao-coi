@@ -88,10 +88,11 @@ if not df.empty:
             
     df = df.rename(columns=col_map)
     
-    # Forçar conversão numérica para evitar erros no mapa
-    df['Latitude'] = pd.to_numeric(df['Latitude'], errors='coerce')
-    df['Longitude'] = pd.to_numeric(df['Longitude'], errors='coerce')
-    df['Pressao_MCA'] = pd.to_numeric(df['Pressao_MCA'], errors='coerce')
+    # Substituir vírgula por ponto para tratar o padrão numérico brasileiro do Google Sheets
+    for col in ['Latitude', 'Longitude', 'Pressao_MCA']:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 
 # Visualização de Tabela e Exclusão
 col1, col2 = st.columns([2, 1])
