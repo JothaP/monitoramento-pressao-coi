@@ -175,6 +175,8 @@ else:
 
 st.divider()
 
+import contextily as ctx
+
 # Seção de Exportação
 st.subheader("💾 Arquivamento e Exportação")
 col_ex1, col_ex2, col_ex3 = st.columns(3)
@@ -194,17 +196,34 @@ if not df.empty:
     with open(kmz_path, "rb") as f:
         col_ex2.download_button("🗺️ Baixar Arquivo KMZ", data=f, file_name="pontos_baixa_pressao.kmz", mime="application/vnd.google-earth.kmz")
 
-    # PNG
+    # PNG - Mapa Cartográfico Real com Fundo OpenStreetMap
     if not valid_df.empty:
-        fig, ax = plt.subplots(figsize=(8, 5))
-        sc = ax.scatter(valid_df['Longitude'], valid_df['Latitude'], c=valid_df['Pressao_MCA'], cmap='autumn', s=120, edgecolors='black')
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # Converter coordenadas lat/lon (EPSG:4326) para Web Mercator (EPSG:3857) exigido pelo contextily
+        from pyproj import Transformer
+        transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+        x_coords, y_coords = transformer.transform(valid_df['Longitude'].values, valid_df['Latitude'].values)
+        
+        # Plotar os pontos no Matplotlib usando as coordenadas projetadas
+        sc = ax.scatter(x_coords, y_coords, c=valid_df['Pressao_MCA'], cmap='autumn', s=150, edgecolors='black', zorder=5)
         plt.colorbar(sc, label='Pressão (MCA)')
-        for _, row in valid_df.iterrows():
-            ax.annotate(f"{row.get('Bairro', '')}\n({row.get('Pressao_MCA', '')} MCA)", (row['Longitude'], row['Latitude']), xytext=(0, 6), textcoords="offset points", ha='center', fontsize=8)
-        plt.title('Pontos de Baixa Pressão Registrados')
-        plt.grid(True, linestyle='--', alpha=0.6)
+        
+        # Adicionar rótulos nos pontos
+        for x, y, bairro, pressao in zip(x_coords, y_coords, valid_df['Bairro'], valid_df['Pressao_MCA']):
+            ax.annotate(f"{bairro}\n({pressao} MCA)", (x, y), xytext=(0, 8), textcoords="offset points", ha='center', fontsize=8, fontweight='bold', bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8), zorder=6)
+
+        plt.title('Mapa de Baixa Pressão - COI', fontsize=12, fontweight='bold')
+        ax.set_axis_off() # Remove os eixos numéricos para parecer um mapa de verdade
+        
+        # Adicionar o mapa de fundo real do OpenStreetMap
+        try:
+            ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, zoom=13)
+        except Exception:
+            pass # Fallback caso haja falha de conexão com o tile server
+        
         png_path = "mapa_pressao.png"
-        plt.savefig(png_path, bbox_inches='tight', dpi=150)
+        plt.savefig(png_path, bbox_inches='tight', dpi=200)
         plt.close()
 
         with open(png_path, "rb") as f:
