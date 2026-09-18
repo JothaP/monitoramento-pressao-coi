@@ -9,6 +9,7 @@ import os
 import simplekml
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+import io
 
 # Configuração da Página
 st.set_page_config(
@@ -28,7 +29,7 @@ def conectar_google_sheets():
     credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
     
-    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # ID da planilha
+    spreadsheet_id = "1O3R4w8x-l6LqW0p6cQzX5N8t9R2v4Q7m1Z3x5N8t9R2"  # ID da planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
@@ -98,10 +99,9 @@ if not df_edit_check.empty:
 
 st.sidebar.divider()
 
-# --- IMPORTAÇÃO EM MASSA E MODELO (COM SUPORTE A XLSX) ---
+# --- IMPORTAÇÃO EM MASSA E MODELO (COM MAPEAMENTO DINÂMICO) ---
 st.sidebar.header("📂 Importação em Massa")
 
-# Botão para baixar o modelo de planilha estruturada em CSV
 df_modelo = pd.DataFrame(columns=["Data", "Bairro", "Latitude", "Longitude", "Pressao_MCA"])
 df_modelo.loc[0] = [datetime.now().strftime("%d/%m/%Y"), "Teresina - Centro", -5.0892, -42.8019, 4.5]
 csv_modelo = df_modelo.to_csv(index=False).encode('utf-8')
@@ -114,28 +114,51 @@ st.sidebar.download_button(
     help="Baixe este arquivo para preencher com a estrutura correta antes de fazer o upload."
 )
 
-# Permitir arquivos do tipo .csv e .xlsx
 arquivo_upload = st.sidebar.file_uploader("Enviar Planilha Preenchida", type=["csv", "xlsx"])
 
 if arquivo_upload is not None:
     try:
-        # Detectar o tipo de arquivo automaticamente e ler
         if arquivo_upload.name.endswith('.csv'):
             df_upload = pd.read_csv(arquivo_upload)
         else:
             df_upload = pd.read_excel(arquivo_upload)
             
         if st.sidebar.button("📤 Processar e Enviar para Planilha"):
+            df_upload.columns = [str(col).strip() for col in df_upload.columns]
+            
             contador = 0
             for _, row in df_upload.iterrows():
-                d = row.get('Data', datetime.now().strftime("%d/%m/%Y"))
-                b = row.get('Bairro', row.get('Município', ''))
-                l = row.get('Latitude', 0)
-                lg = row.get('Longitude', 0)
-                p = row.get('Pressao_MCA', row.get('Pressão', 0))
-                if pd.notna(b):
-                    worksheet.append_row([str(d), str(b), float(l), float(lg), float(p)])
+                bairro_val, lat_val, lon_val, pressao_val = None, 0.0, 0.0, 0.0
+                
+                for col in df_upload.columns:
+                    c_lower = col.lower()
+                    val = row[col]
+                    if pd.isna(val):
+                        continue
+                        
+                    if 'bairro' in c_lower or 'município' in c_lower or 'municipio' in c_lower:
+                        bairro_val = str(val)
+                    elif 'lat' in c_lower:
+                        lat_val = val
+                    elif 'lon' in c_lower or 'long' in c_lower:
+                        lon_val = val
+                    elif 'pressao' in c_lower or 'pressão' in c_lower or 'mca' in c_lower:
+                        pressao_val = val
+                
+                if bairro_val and bairro_val.lower() != 'nan':
+                    data_hoje = datetime.now().strftime("%d/%m/%Y")
+                    try:
+                        lat_num = float(str(lat_val).replace(',', '.'))
+                        lon_num = float(str(lon_val).replace(',', '.'))
+                        if abs(lat_num) > 90: lat_num /= 100000.0
+                        if abs(lon_num) > 180: lon_num /= 100000.0
+                        pressao_num = float(str(pressao_val).replace(',', '.'))
+                    except:
+                        lat_num, lon_num, pressao_num = 0.0, 0.0, 0.0
+                        
+                    worksheet.append_row([data_hoje, bairro_val, lat_num, lon_num, pressao_num])
                     contador += 1
+                    
             st.sidebar.success(f"{contador} registros importados com sucesso!")
             st.rerun()
     except Exception as e:
@@ -143,7 +166,7 @@ if arquivo_upload is not None:
 
 st.sidebar.divider()
 
-# --- EXPORTAÇÃO DE DADOS NA BARRA LATERAL ---
+# --- EXPORTAÇÃO DE DADOS NA BARRA LATERAL (FORMATO XLS / EXCEL) ---
 st.sidebar.header("💾 Exportação de Dados")
 
 df = carregar_dados()
@@ -183,8 +206,18 @@ if not df.empty:
     if 'Pressao_MCA' in df.columns:
         df['Pressao_MCA'] = pd.to_numeric(df['Pressao_MCA'].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce')
 
-    csv_data = df.to_csv(index=False).encode('utf-8')
-    st.sidebar.download_button("📁 Baixar Planilha (CSV)", data=csv_data, file_name="pontos_baixa_pressao.csv", mime="text/csv")
+    # Exportação em formato Excel (.xlsx) em memória usando BytesIO
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Plantao_COI')
+    excel_data = output.getvalue()
+
+    st.sidebar.download_button(
+        "📁 Baixar Planilha (Excel / XLS)", 
+        data=excel_data, 
+        file_name="pontos_baixa_pressao.xlsx", 
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
     kml = simplekml.Kml()
     for _, row in df.iterrows():
