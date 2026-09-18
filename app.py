@@ -19,9 +19,9 @@ st.set_page_config(
 )
 
 # Atualização automática a cada 30 segundos
-st_autorefresh(interval=10000, key="datarefresh")
+st_autorefresh(interval=30000, key="datarefresh")
 
-# Coordenada Base Padrão para o carregamento inicial do mapa (Ex: Teresina - PI)
+# Coordenada Base Fixa (Centro de Teresina - PI)
 LAT_BASE = -5.0892
 LON_BASE = -42.8019
 
@@ -321,24 +321,24 @@ st.subheader("🗺️ Mapa de Baixa Pressão em Tempo Real")
 
 mostrar_rotulos = st.checkbox("🔍 Exibir Rótulos", value=False)
 
+# O mapa sempre é inicializado centralizado fixo no Centro de Teresina
+m = folium.Map(location=[LAT_BASE, LON_BASE], zoom_start=12, tiles="OpenStreetMap")
+
+# Carrega o GeoJSON dos bairros, caso exista
+if os.path.exists("bairros.geojson"):
+    with open("bairros.geojson", "r", encoding="utf-8") as f:
+        geojson_bairros = json.load(f)
+    folium.GeoJson(
+        geojson_bairros,
+        name="Limites dos Bairros",
+        style_function=lambda feature: {'fillColor': '#3186cc', 'color': '#2b2b2b', 'weight': 1.5, 'fillOpacity': 0.1},
+        highlight_function=lambda feature: {'weight': 3, 'fillOpacity': 0.3}
+    ).add_to(m)
+
+# Adiciona os marcadores se houver pontos filtrados válidos
 if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' in df_filtrado.columns:
     valid_df = df_filtrado.dropna(subset=['Latitude', 'Longitude'])
     if not valid_df.empty:
-        # Usa a média dos pontos filtrados, ou recorre ao ponto base definido (LAT_BASE / LON_BASE) se necessário
-        centro_lat = valid_df['Latitude'].mean()
-        centro_lon = valid_df['Longitude'].mean()
-        m = folium.Map(location=[centro_lat, centro_lon], zoom_start=12, tiles="OpenStreetMap")
-        
-        if os.path.exists("bairros.geojson"):
-            with open("bairros.geojson", "r", encoding="utf-8") as f:
-                geojson_bairros = json.load(f)
-            folium.GeoJson(
-                geojson_bairros,
-                name="Limites dos Bairros",
-                style_function=lambda feature: {'fillColor': '#3186cc', 'color': '#2b2b2b', 'weight': 1.5, 'fillOpacity': 0.1},
-                highlight_function=lambda feature: {'weight': 3, 'fillOpacity': 0.3}
-            ).add_to(m)
-
         for _, row in valid_df.iterrows():
             pressao = row.get('Pressao_MCA', 0.0)
             mun_nome = row.get('Municipio', '')
@@ -376,15 +376,8 @@ if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' i
                     icon=folium.Icon(color=cor, icon="tint", prefix="fa")
                 ).add_to(m)
 
-        folium.LayerControl().add_to(m)
-        st_folium(m, width="100%", height=550, returned_objects=[])
-    else:
-        # Caso o DataFrame filtrado não tenha coordenadas válidas, inicializa diretamente no ponto base
-        m = folium.Map(location=[LAT_BASE, LON_BASE], zoom_start=12, tiles="OpenStreetMap")
-        st_folium(m, width="100%", height=550, returned_objects=[])
-        st.info("Coordenadas válidas não encontradas para exibir no mapa.")
-else:
-    # Caso não haja dados, inicializa diretamente no ponto base
-    m = folium.Map(location=[LAT_BASE, LON_BASE], zoom_start=12, tiles="OpenStreetMap")
-    st_folium(m, width="100%", height=550, returned_objects=[])
-    st.info("Nenhum ponto registrado para exibir no mapa.")
+folium.LayerControl().add_to(m)
+st_folium(m, width="100%", height=550, returned_objects=[])
+
+if df_filtrado.empty or df_filtrado.dropna(subset=['Latitude', 'Longitude']).empty:
+    st.info("Nenhum ponto com coordenadas válidas encontrado para exibir no mapa.")
