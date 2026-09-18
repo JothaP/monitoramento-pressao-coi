@@ -62,7 +62,6 @@ with st.sidebar.form("form_ponto", clear_on_submit=True):
     enviado = st.form_submit_button("Cadastrar Ponto")
     if enviado:
         if bairro:
-            # Data automática no formato dd/mm/aaaa correspondente ao dia de hoje
             data_hoje = datetime.now().strftime("%d/%m/%Y")
             worksheet.append_row([data_hoje, bairro, lat, lon, pressao])
             st.sidebar.success(f"Ponto em {bairro} adicionado com sucesso!")
@@ -72,9 +71,51 @@ with st.sidebar.form("form_ponto", clear_on_submit=True):
 
 st.sidebar.divider()
 
-# Upload de Planilha em Massa na Barra Lateral
+# --- EDIÇÃO DE REGISTROS NA BARRA LATERAL ---
+st.sidebar.header("✏️ Editar Registro")
+df_edit_check = carregar_dados()
+
+if not df_edit_check.empty:
+    opcoes_edicao = [f"Linha {idx+2}: {row.get('Bairro', '')} ({row.get('Pressao_MCA', '')} MCA)" for idx, row in df_edit_check.iterrows()]
+    ponto_para_editar = st.sidebar.selectbox("Selecione para editar:", ["Nenhum"] + opcoes_edicao, key="select_edicao")
+    
+    if ponto_para_editar != "Nenhum":
+        linha_idx = int(ponto_para_editar.split(":")[0].replace("Linha ", ""))
+        row_data = df_edit_check.iloc[linha_idx - 2]
+        
+        with st.sidebar.form("form_edicao"):
+            edit_bairro = st.text_input("Município / Bairro", value=str(row_data.get('Bairro', '')))
+            edit_lat = st.number_input("Latitude", format="%.6f", value=float(row_data.get('Latitude', 0.0)))
+            edit_lon = st.number_input("Longitude", format="%.6f", value=float(row_data.get('Longitude', 0.0)))
+            edit_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=float(row_data.get('Pressao_MCA', 0.0)))
+            
+            salvar_edicao = st.form_submit_button("💾 Salvar Alterações")
+            if salvar_edicao:
+                data_atual = str(row_data.get('Data', datetime.now().strftime("%d/%m/%Y")))
+                worksheet.update(f"A{linha_idx}:E{linha_idx}", [[data_atual, edit_bairro, edit_lat, edit_lon, edit_pressao]])
+                st.sidebar.success("Registro atualizado com sucesso!")
+                st.rerun()
+
+st.sidebar.divider()
+
+# --- IMPORTAÇÃO EM MASSA E MODELO ---
 st.sidebar.header("📂 Importação em Massa")
-arquivo_upload = st.sidebar.file_uploader("Enviar Planilha (CSV ou XLSX)", type=["csv", "xlsx"])
+
+# Botão para baixar o modelo de planilha estruturada
+df_modelo = pd.DataFrame(columns=["Data", "Bairro", "Latitude", "Longitude", "Pressao_MCA"])
+# Adicionar um exemplo ilustrativo na primeira linha do modelo
+df_modelo.loc[0] = [datetime.now().strftime("%d/%m/%Y"), "Teresina - Centro", -5.0892, -42.8019, 4.5]
+csv_modelo = df_modelo.to_csv(index=False).encode('utf-8')
+
+st.sidebar.download_button(
+    "📥 Baixar Modelo de Planilha",
+    data=csv_modelo,
+    file_name="modelo_importacao_coi.csv",
+    mime="text/csv",
+    help="Baixe este arquivo para preencher com a estrutura correta antes de fazer o upload."
+)
+
+arquivo_upload = st.sidebar.file_uploader("Enviar Planilha Preenchida (CSV)", type=["csv", "xlsx"])
 
 if arquivo_upload is not None:
     try:
@@ -84,15 +125,15 @@ if arquivo_upload is not None:
             df_upload = pd.read_excel(arquivo_upload)
             
         if st.sidebar.button("📤 Processar e Enviar para Planilha"):
-            data_hoje = datetime.now().strftime("%d/%m/%Y")
             contador = 0
             for _, row in df_upload.iterrows():
+                d = row.get('Data', datetime.now().strftime("%d/%m/%Y"))
                 b = row.get('Bairro', row.get('Município', ''))
                 l = row.get('Latitude', 0)
                 lg = row.get('Longitude', 0)
                 p = row.get('Pressao_MCA', row.get('Pressão', 0))
                 if pd.notna(b):
-                    worksheet.append_row([data_hoje, str(b), float(l), float(lg), float(p)])
+                    worksheet.append_row([str(d), str(b), float(l), float(lg), float(p)])
                     contador += 1
             st.sidebar.success(f"{contador} registros importados com sucesso!")
             st.rerun()
@@ -101,7 +142,7 @@ if arquivo_upload is not None:
 
 st.sidebar.divider()
 
-# Botões de Exportação na Barra Lateral (logo abaixo da importação)
+# --- EXPORTAÇÃO DE DADOS NA BARRA LATERAL ---
 st.sidebar.header("💾 Exportação de Dados")
 
 # Carregar e normalizar dados globais para exportação e uso no painel
@@ -126,7 +167,6 @@ if not df.empty:
             
     df = df.rename(columns=col_map)
     
-    # Garantir coluna de data caso não exista na planilha antiga
     if 'Data' not in df.columns:
         df['Data'] = datetime.now().strftime("%d/%m/%Y")
 
@@ -144,7 +184,6 @@ if not df.empty:
     if 'Pressao_MCA' in df.columns:
         df['Pressao_MCA'] = pd.to_numeric(df['Pressao_MCA'].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce')
 
-    # Botões na barra lateral
     csv_data = df.to_csv(index=False).encode('utf-8')
     st.sidebar.download_button("📁 Baixar Planilha (CSV)", data=csv_data, file_name="pontos_baixa_pressao.csv", mime="text/csv")
 
@@ -162,15 +201,12 @@ if not df.empty:
     st.subheader("🔍 Filtros de Visualização")
     f_col1, f_col2 = st.columns(2)
     
-    # Filtro por Data
     datas_disponiveis = sorted(df['Data'].dropna().unique().tolist())
     data_selecionada = f_col1.selectbox("Filtrar por Data", ["Todas"] + datas_disponiveis)
     
-    # Filtro por Município / Bairro
     municipios_disponiveis = sorted(df['Bairro'].dropna().unique().tolist())
     municipio_selecionado = f_col2.selectbox("Filtrar por Município / Bairro", ["Todos"] + municipios_disponiveis)
     
-    # Aplicar filtros
     df_filtrado = df.copy()
     if data_selecionada != "Todas":
         df_filtrado = df_filtrado[df_filtrado['Data'] == data_selecionada]
@@ -192,7 +228,6 @@ if not df_filtrado.empty:
     kpi3.metric("Em Atenção (≤ 5 MCA)", atencao)
     kpi4.metric("Normais (> 5 MCA)", normais)
     
-    # Alerta Automático de Pontos Críticos (0 MCA)
     if criticos_zero > 0:
         st.error(f"🚨 **ALERTA COI:** Existem {criticos_zero} ocorrência(s) com pressão zerada (0 MCA) exigindo ação imediata da equipe técnica!")
 
@@ -204,7 +239,6 @@ col1, col2 = st.columns([2, 1])
 with col1:
     st.subheader("📋 Registro de Pontos do Plantão")
     if not df_filtrado.empty:
-        # Ajustar índice da tabela para começar em 1 em vez de 0
         df_exibicao = df_filtrado.reset_index(drop=True)
         df_exibicao.index = df_exibicao.index + 1
         st.dataframe(df_exibicao, use_container_width=True)
@@ -252,7 +286,6 @@ if not df_filtrado.empty and 'Latitude' in df_filtrado.columns and 'Longitude' i
             bairro_nome = row.get('Bairro', 'Desconhecido')
             data_reg = row.get('Data', '')
             
-            # Regra de Cores: Vermelho (==0), Amarelo (<=5), Azul (>5)
             if pressao == 0:
                 cor = "red"
             elif pressao <= 5:
