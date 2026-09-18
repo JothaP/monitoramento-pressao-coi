@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # Atualização automática a cada 30 segundos
-st_autorefresh(interval=30000, key="datarefresh")
+st_autorefresh(interval=10000, key="datarefresh")
 
 # Coordenada Base Padrão para o carregamento inicial do mapa (Ex: Teresina - PI)
 LAT_BASE = -5.0892
