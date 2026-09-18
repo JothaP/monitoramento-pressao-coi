@@ -167,7 +167,7 @@ if not df.empty and 'Latitude' in df.columns and 'Longitude' in df.columns:
                 # Estilização compacta em DivIcon para evitar sobreposição excessiva e manter proporção no zoom
                 icon_html = f"""
                 <div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-                    <div style="background: white; padding: 2px 6px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 10px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
+                    <div style="background: white; padding: 3px 8px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 14px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
                         {bairro_nome} ({pressao} MCA)
                     </div>
                     <div style="background-color: {cor}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.7);"></div>
