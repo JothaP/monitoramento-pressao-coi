@@ -29,7 +29,7 @@ def conectar_google_sheets():
     gc = gspread.authorize(credentials)
     
     # ID da planilha do Google Sheets
-    spreadsheet_id = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"  # Substitua se necessário pelo ID exato da sua planilha
+    spreadsheet_id = "1O3R4w8x-l6LqW0p6cQzX5N8t9R2v4Q7m1Z3x5N8t9R2"  # Substitua se necessário pelo ID exato da sua planilha
     sh = gc.open_by_key(spreadsheet_id)
     return sh.sheet1
 
@@ -88,17 +88,20 @@ if not df.empty:
             
     df = df.rename(columns=col_map)
     
-    # Conversão robusta de coordenadas (tratando vírgula, ponto e números inteiros multiplicados)
+    # Conversão robusta e segura para float
     for col in ['Latitude', 'Longitude']:
         if col in df.columns:
-            # Converter para string limpa
+            # Converte valores para string limpa e depois para numérico float
             s = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip()
-            df[col] = pd.to_numeric(s, errors='coerce')
-            # Se vier sem ponto decimal e estourar a faixa real, ajusta automaticamente
+            valores_num = pd.to_numeric(s, errors='coerce')
+            
+            # Ajuste automático caso o valor venha sem ponto decimal
             if col == 'Latitude':
-                df.loc[df[col].abs() > 90, col] = df.loc[df[col].abs() > 90, col] / 100000.0
+                valores_num = valores_num.apply(lambda x: x / 100000.0 if abs(x) > 90 else x)
             if col == 'Longitude':
-                df.loc[df[col].abs() > 180, col] = df.loc[df[col].abs() > 180, col] / 100000.0
+                valores_num = valores_num.apply(lambda x: x / 100000.0 if abs(x) > 180 else x)
+                
+            df[col] = valores_num
 
     if 'Pressao_MCA' in df.columns:
         df['Pressao_MCA'] = pd.to_numeric(df['Pressao_MCA'].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce')
