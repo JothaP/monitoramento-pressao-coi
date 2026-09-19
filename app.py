@@ -173,11 +173,29 @@ def normalizar_coluna(nome: str) -> str:
     return mapeamento.get(nome, nome.title())
 
 
-def parse_float(valor, default: float = 0.0) -> float:
+def parse_float(valor, default=None):
+    """
+    Converte valor para float de forma segura.
+    Troca vírgula por ponto e remove espaços.
+    Não altera a magnitude do número (não multiplica/divide).
+    """
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return default
+
+    # Se já for número (int/float), só arredonda depois
+    if isinstance(valor, (int, float)):
+        return float(valor)
+
     try:
-        if pd.isna(valor):
+        texto = str(valor).strip()
+        if not texto or texto.lower() in ("nan", "none", "nat", ""):
             return default
-        texto = str(valor).strip().replace(",", ".")
+
+        # Troca vírgula por ponto (formato brasileiro → americano)
+        texto = texto.replace(",", ".")
+        # Remove espaços
+        texto = texto.replace(" ", "")
+
         return float(texto)
     except (ValueError, TypeError):
         return default
@@ -193,25 +211,26 @@ def normalizar_coordenada(valor, tipo: str = "lat") -> Optional[float]:
     3. Arredonda para no máximo 6 casas decimais
     4. NÃO multiplica nem divide o valor
     """
-    num = parse_float(valor, None)
+    num = parse_float(valor, default=None)
     if num is None:
         return None
 
     # Validação mínima mundial
-    if tipo == "lat" and not (-90 <= num <= 90):
+    if tipo == "lat" and not (-90.0 <= num <= 90.0):
         return None
-    if tipo == "lon" and not (-180 <= num <= 180):
+    if tipo == "lon" and not (-180.0 <= num <= 180.0):
         return None
 
-    # Descarta 0,0 (erro de preenchimento)
+    # Descarta exatamente 0 (erro de preenchimento)
     if num == 0.0:
         return None
 
-    return round(num, 6)
+    return round(float(num), 6)
 
 
-@st.cache_data(ttl=15, show_spinner="Carregando dados...")
+@st.cache_data(ttl=10, show_spinner="Carregando dados...")
 def carregar_dados() -> pd.DataFrame:
+    # v2 - parsing de coordenadas apenas com troca de vírgula/ponto
     try:
         registros = worksheet.get_all_records()
     except Exception as e:
