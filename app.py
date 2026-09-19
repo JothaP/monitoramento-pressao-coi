@@ -185,39 +185,60 @@ def parse_float(valor, default: float = 0.0) -> float:
 
 def normalizar_coordenada(valor, tipo: str = "lat") -> Optional[float]:
     """
-    Converte coordenada para float.
-    Tenta corrigir valores que vieram sem ponto decimal (ex: -5089200).
-    Só descarta se estiver claramente fora dos limites geográficos mundiais.
+    Converte coordenada para float de forma segura para a região do Piauí.
+
+    Aceita:
+    - Valores já corretos: -5.0892 / -42.8019
+    - Valores sem ponto decimal em vários fatores de escala
+    - Valores com vírgula (já tratados no parse_float)
+
+    NÃO corrompe valores que já estão na faixa correta.
     """
     num = parse_float(valor, None)
     if num is None:
         return None
 
-    # Corrige valores que provavelmente vieram multiplicados (sem ponto decimal)
-    if tipo == "lat":
-        if abs(num) > 90:
-            if abs(num) > 1_000_000:
-                num = num / 1_000_000
-            elif abs(num) > 10_000:
-                num = num / 100_000
-            elif abs(num) > 90:
-                num = num / 1000  # último recurso
-    else:  # longitude
-        if abs(num) > 180:
-            if abs(num) > 1_000_000:
-                num = num / 1_000_000
-            elif abs(num) > 10_000:
-                num = num / 100_000
-            elif abs(num) > 180:
-                num = num / 1000
+    abs_num = abs(num)
 
-    # Validação mínima mundial (não descarta pontos do Piauí por engano)
+    if tipo == "lat":
+        # Faixa esperada no Brasil: ~ -35 a +5
+        if 1 <= abs_num <= 90:
+            pass  # já está em graus
+        elif 1000 <= abs_num <= 90000:           # ex: -5089 → -5.089
+            num = num / 1000
+        elif 100000 <= abs_num <= 9000000:       # ex: -5089200 → -5.0892
+            num = num / 1_000_000
+        elif 10000000 <= abs_num <= 900000000:
+            num = num / 10_000_000
+        else:
+            if not (1 <= abs_num <= 90):
+                return None
+    else:  # longitude
+        # Faixa esperada no Brasil: ~ -75 a -30
+        if 20 <= abs_num <= 180:
+            pass  # já está em graus
+        elif 3.5 <= abs_num <= 5.5:
+            # Recuperação: valores que foram incorretamente divididos por 10
+            # Ex: -4.2831 deveria ser -42.831
+            num = num * 10
+        elif 2000 <= abs_num <= 7500:            # ex: -4280 → -42.80
+            num = num / 100
+        elif 20000 <= abs_num <= 75000:          # ex: -42801 → -42.801
+            num = num / 1000
+        elif 200000 <= abs_num <= 750000:        # ex: -428019 → -42.8019
+            num = num / 10000
+        elif 2000000 <= abs_num <= 75000000:     # ex: -42801900 → -42.8019
+            num = num / 1_000_000
+        else:
+            if not (20 <= abs_num <= 180):
+                return None
+
+    # Validação final mundial
     if tipo == "lat" and not (-90 <= num <= 90):
         return None
     if tipo == "lon" and not (-180 <= num <= 180):
         return None
 
-    # Descarta coordenadas claramente zeradas (0,0) que costumam ser erro de preenchimento
     if num == 0.0:
         return None
 
