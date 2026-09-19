@@ -7,7 +7,7 @@ import folium
 from streamlit_folium import st_folium
 import os
 import simplekml
-from datetime import datetime
+from datetime import datetime, date
 from streamlit_autorefresh import st_autorefresh
 import io
 import uuid
@@ -30,6 +30,98 @@ LAT_BASE = -5.0892
 LON_BASE = -42.8019
 SPREADSHEET_ID = "15iN3YEGyxk3l1ZKaHJJp-BvTfVHqpd7gL1GX3RbAKUU"
 COLUNAS_PADRAO = ["ID", "Data", "Municipio", "Bairro", "Latitude", "Longitude", "Pressao_MCA"]
+
+# ============================================================
+# AUTENTICAÇÃO
+# ============================================================
+def verificar_senha() -> bool:
+    """Tela de login com senha. Retorna True se autenticado."""
+    def senha_correta():
+        if "senha_acesso" in st.secrets:
+            return st.session_state.get("senha_digitada") == st.secrets["senha_acesso"]
+        # Fallback para desenvolvimento (remova em produção)
+        return st.session_state.get("senha_digitada") == "coi2026"
+
+    if "autenticado" not in st.session_state:
+        st.session_state.autenticado = False
+
+    if st.session_state.autenticado:
+        return True
+
+    # ---------- Tela de Login ----------
+    st.markdown(
+        """
+        <style>
+        .login-container {
+            max-width: 420px;
+            margin: 80px auto 40px auto;
+            padding: 40px 36px;
+            background: linear-gradient(145deg, #f0f7ff 0%, #e8f4fd 100%);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 80, 140, 0.12);
+            border: 1px solid #d0e6f7;
+            text-align: center;
+        }
+        .login-icon {
+            font-size: 52px;
+            margin-bottom: 12px;
+        }
+        .login-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #0a4d8c;
+            margin-bottom: 6px;
+        }
+        .login-subtitle {
+            font-size: 14px;
+            color: #5a7a9a;
+            margin-bottom: 28px;
+            line-height: 1.4;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col1, col2, col3 = st.columns([1, 1.4, 1])
+    with col2:
+        st.markdown(
+            """
+            <div class="login-container">
+                <div class="login-icon">💧</div>
+                <div class="login-title">Monitoramento de Baixa Pressão</div>
+                <div class="login-subtitle">
+                    Centro de Operações Integradas (COI)<br>
+                    Digite a senha de acesso para continuar
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        with st.form("form_login"):
+            senha = st.text_input(
+                "Senha de acesso",
+                type="password",
+                placeholder="Digite a senha...",
+                label_visibility="collapsed"
+            )
+            st.session_state.senha_digitada = senha
+            entrar = st.form_submit_button("Acessar Painel", type="primary", use_container_width=True)
+
+            if entrar:
+                if senha_correta():
+                    st.session_state.autenticado = True
+                    st.rerun()
+                else:
+                    st.error("Senha incorreta. Tente novamente.")
+
+    st.stop()
+    return False
+
+
+# Executa a verificação de senha
+verificar_senha()
 
 # ============================================================
 # CONEXÃO COM GOOGLE SHEETS
@@ -56,11 +148,10 @@ except Exception as e:
 # FUNÇÕES DE DADOS
 # ============================================================
 def gerar_id() -> str:
-    """Gera um ID curto e único."""
     return str(uuid.uuid4())[:8].upper()
 
+
 def normalizar_coluna(nome: str) -> str:
-    """Padroniza nomes de colunas."""
     nome = str(nome).strip().lower()
     mapeamento = {
         "id": "ID",
@@ -81,8 +172,8 @@ def normalizar_coluna(nome: str) -> str:
     }
     return mapeamento.get(nome, nome.title())
 
+
 def parse_float(valor, default: float = 0.0) -> float:
-    """Converte valor para float de forma segura."""
     try:
         if pd.isna(valor):
             return default
@@ -91,11 +182,8 @@ def parse_float(valor, default: float = 0.0) -> float:
     except (ValueError, TypeError):
         return default
 
+
 def normalizar_coordenada(valor, tipo: str = "lat") -> Optional[float]:
-    """
-    Normaliza coordenadas.
-    Corrige casos em que o valor veio sem ponto decimal (ex: -5089200 → -5.089200).
-    """
     num = parse_float(valor, None)
     if num is None:
         return None
@@ -103,11 +191,10 @@ def normalizar_coordenada(valor, tipo: str = "lat") -> Optional[float]:
     if tipo == "lat":
         if abs(num) > 90:
             num = num / 1_000_000 if abs(num) > 1000 else num / 100_000
-    else:  # lon
+    else:
         if abs(num) > 180:
             num = num / 1_000_000 if abs(num) > 1000 else num / 100_000
 
-    # Validação básica para a região do Piauí
     if tipo == "lat" and not (-10.5 <= num <= -2.5):
         return None
     if tipo == "lon" and not (-46.0 <= num <= -40.0):
@@ -115,9 +202,9 @@ def normalizar_coordenada(valor, tipo: str = "lat") -> Optional[float]:
 
     return round(num, 6)
 
+
 @st.cache_data(ttl=15, show_spinner="Carregando dados...")
 def carregar_dados() -> pd.DataFrame:
-    """Carrega e normaliza os dados da planilha."""
     try:
         registros = worksheet.get_all_records()
     except Exception as e:
@@ -130,63 +217,55 @@ def carregar_dados() -> pd.DataFrame:
     df = pd.DataFrame(registros)
     df.columns = [normalizar_coluna(c) for c in df.columns]
 
-    # Garante colunas obrigatórias
     for col in COLUNAS_PADRAO:
         if col not in df.columns:
             df[col] = None
 
-    # Gera ID para registros antigos que não possuem
-    if df["ID"].isna().any() or (df["ID"].astype(str).str.strip() == "").any():
-        mask = df["ID"].isna() | (df["ID"].astype(str).str.strip() == "")
+    # Gera ID temporário para registros antigos (não grava de volta automaticamente)
+    mask = df["ID"].isna() | (df["ID"].astype(str).str.strip() == "") | (df["ID"].astype(str).str.lower() == "nan")
+    if mask.any():
         df.loc[mask, "ID"] = [gerar_id() for _ in range(mask.sum())]
 
-    # Normaliza tipos
     df["Latitude"] = df["Latitude"].apply(lambda x: normalizar_coordenada(x, "lat"))
     df["Longitude"] = df["Longitude"].apply(lambda x: normalizar_coordenada(x, "lon"))
     df["Pressao_MCA"] = df["Pressao_MCA"].apply(lambda x: parse_float(x, 0.0))
     df["Data"] = df["Data"].astype(str).str.strip()
-    df["Municipio"] = df["Municipio"].astype(str).str.strip().replace("nan", "Teresina")
-    df["Bairro"] = df["Bairro"].astype(str).str.strip().replace("nan", "")
+    df["Municipio"] = df["Municipio"].astype(str).str.strip().replace({"nan": "Teresina", "None": "Teresina"})
+    df["Bairro"] = df["Bairro"].astype(str).str.strip().replace({"nan": "", "None": ""})
 
-    # Remove linhas completamente vazias
     df = df.dropna(how="all")
     df = df[df["Bairro"] != ""]
 
     return df[COLUNAS_PADRAO].reset_index(drop=True)
 
+
 def limpar_cache():
-    """Limpa o cache de dados."""
     carregar_dados.clear()
 
-def adicionar_ponto(municipio: str, bairro: str, lat: float, lon: float, pressao: float, data: str = None):
-    """Adiciona um novo ponto na planilha."""
-    if data is None:
-        data = datetime.now().strftime("%d/%m/%Y")
-    
+
+def adicionar_ponto(municipio: str, bairro: str, lat: float, lon: float, pressao: float, data_str: str):
     novo_id = gerar_id()
-    worksheet.append_row([novo_id, data, municipio, bairro, lat, lon, pressao])
+    worksheet.append_row([novo_id, data_str, municipio, bairro, lat, lon, pressao])
     limpar_cache()
     return novo_id
 
-def atualizar_ponto(id_registro: str, municipio: str, bairro: str, lat: float, lon: float, pressao: float, data: str):
-    """Atualiza um ponto existente pelo ID."""
-    # Busca a linha pelo ID (mais confiável)
+
+def atualizar_ponto(id_registro: str, municipio: str, bairro: str, lat: float, lon: float, pressao: float, data_str: str) -> bool:
     try:
-        celula = worksheet.find(id_registro)
+        celula = worksheet.find(str(id_registro))
         if celula is None:
             return False
-        
         linha = celula.row
-        worksheet.update(f"A{linha}:G{linha}", [[id_registro, data, municipio, bairro, lat, lon, pressao]])
+        worksheet.update(f"A{linha}:G{linha}", [[id_registro, data_str, municipio, bairro, lat, lon, pressao]])
         limpar_cache()
         return True
     except Exception:
         return False
 
+
 def excluir_ponto(id_registro: str) -> bool:
-    """Exclui um ponto pelo ID."""
     try:
-        celula = worksheet.find(id_registro)
+        celula = worksheet.find(str(id_registro))
         if celula is None:
             return False
         worksheet.delete_rows(celula.row)
@@ -195,201 +274,227 @@ def excluir_ponto(id_registro: str) -> bool:
     except Exception:
         return False
 
+
+def data_para_str(d: date) -> str:
+    return d.strftime("%d/%m/%Y")
+
+
+def str_para_data(s: str) -> Optional[date]:
+    try:
+        return datetime.strptime(str(s).strip(), "%d/%m/%Y").date()
+    except Exception:
+        return None
+
+
 # ============================================================
 # SESSION STATE
 # ============================================================
+hoje = date.today()
+
+if "data_selecionada" not in st.session_state:
+    st.session_state.data_selecionada = hoje
 if "clicked_lat" not in st.session_state:
     st.session_state.clicked_lat = None
 if "clicked_lon" not in st.session_state:
     st.session_state.clicked_lon = None
 if "modo_adicionar_mapa" not in st.session_state:
     st.session_state.modo_adicionar_mapa = False
+if "registro_selecionado_id" not in st.session_state:
+    st.session_state.registro_selecionado_id = None
+if "modo_edicao" not in st.session_state:
+    st.session_state.modo_edicao = False
 
 # ============================================================
-# SIDEBAR - CONTROLES
+# SIDEBAR
 # ============================================================
 with st.sidebar:
-    st.title("💧 COI - Controle")
-    
-    # --- Atualização automática ---
-    st.subheader("⏱️ Atualização")
-    intervalo = st.select_slider(
-        "Intervalo de atualização (segundos)",
-        options=[0, 15, 30, 60, 120],
-        value=30,
-        help="0 = desativado"
+    st.markdown("### 💧 COI - Monitoramento")
+    st.caption("Baixa Pressão • Tempo Real")
+
+    # ---------- CALENDÁRIO ----------
+    st.markdown("#### 📅 Selecionar Data")
+    data_escolhida = st.date_input(
+        "Data",
+        value=st.session_state.data_selecionada,
+        format="DD/MM/YYYY",
+        label_visibility="collapsed",
+        key="calendario_principal"
     )
-    if intervalo > 0:
-        st_autorefresh(interval=intervalo * 1000, key="datarefresh")
+    st.session_state.data_selecionada = data_escolhida
+    data_str_selecionada = data_para_str(data_escolhida)
 
-    st.divider()
-
-    # --- NOVO REGISTRO MANUAL ---
-    st.subheader("➕ Novo Registro")
-
-    # Se veio de clique no mapa, pré-preenche
-    lat_default = st.session_state.clicked_lat if st.session_state.clicked_lat is not None else 0.0
-    lon_default = st.session_state.clicked_lon if st.session_state.clicked_lon is not None else 0.0
-
-    with st.form("form_novo_ponto", clear_on_submit=True):
-        municipio = st.text_input("Município *", value="Teresina", placeholder="Ex: Teresina")
-        bairro = st.text_input("Bairro *", placeholder="Ex: Centro")
-        
-        col_lat, col_lon = st.columns(2)
-        with col_lat:
-            lat = st.number_input("Latitude *", format="%.6f", value=float(lat_default), step=0.000001)
-        with col_lon:
-            lon = st.number_input("Longitude *", format="%.6f", value=float(lon_default), step=0.000001)
-        
-        pressao = st.number_input("Pressão (MCA) *", format="%.2f", value=0.00, min_value=0.0, step=0.1)
-        
-        enviado = st.form_submit_button("Cadastrar Ponto", type="primary", use_container_width=True)
-        
-        if enviado:
-            if not municipio.strip() or not bairro.strip():
-                st.error("Município e Bairro são obrigatórios.")
-            elif lat == 0.0 and lon == 0.0:
-                st.error("Informe coordenadas válidas (ou clique no mapa).")
-            else:
-                lat_norm = normalizar_coordenada(lat, "lat")
-                lon_norm = normalizar_coordenada(lon, "lon")
-                
-                if lat_norm is None or lon_norm is None:
-                    st.error("Coordenadas fora da região válida (Piauí).")
-                else:
-                    novo_id = adicionar_ponto(municipio.strip(), bairro.strip(), lat_norm, lon_norm, pressao)
-                    st.success(f"✅ Ponto cadastrado! ID: {novo_id}")
-                    # Limpa o clique do mapa
-                    st.session_state.clicked_lat = None
-                    st.session_state.clicked_lon = None
-                    st.rerun()
-
-    if st.session_state.clicked_lat is not None:
-        st.info(f"📍 Coordenadas do mapa:\n`{st.session_state.clicked_lat:.6f}, {st.session_state.clicked_lon:.6f}`")
-        if st.button("Limpar coordenadas do mapa", use_container_width=True):
-            st.session_state.clicked_lat = None
-            st.session_state.clicked_lon = None
-            st.rerun()
-
-    st.divider()
-
-    # --- EDIÇÃO ---
-    st.subheader("✏️ Editar Registro")
-    
-    df_edit = carregar_dados()
-    
-    if not df_edit.empty:
-        opcoes = ["— Selecione —"] + [
-            f"{row['ID']} | {row['Municipio']} - {row['Bairro']} ({row['Pressao_MCA']} MCA)"
-            for _, row in df_edit.iterrows()
-        ]
-        
-        escolha = st.selectbox("Registro:", opcoes, key="select_edicao")
-        
-        if escolha != "— Selecione —":
-            id_sel = escolha.split(" | ")[0]
-            registro = df_edit[df_edit["ID"] == id_sel].iloc[0]
-            
-            with st.form("form_edicao"):
-                st.caption(f"Editando ID: **{id_sel}**")
-                
-                edit_mun = st.text_input("Município", value=registro["Municipio"])
-                edit_bairro = st.text_input("Bairro", value=registro["Bairro"])
-                edit_lat = st.number_input("Latitude", format="%.6f", value=float(registro["Latitude"] or 0))
-                edit_lon = st.number_input("Longitude", format="%.6f", value=float(registro["Longitude"] or 0))
-                edit_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=float(registro["Pressao_MCA"]))
-                edit_data = st.text_input("Data", value=registro["Data"])
-                
-                if st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True):
-                    sucesso = atualizar_ponto(
-                        id_sel, edit_mun.strip(), edit_bairro.strip(),
-                        edit_lat, edit_lon, edit_pressao, edit_data.strip()
-                    )
-                    if sucesso:
-                        st.success("Registro atualizado!")
-                        st.rerun()
-                    else:
-                        st.error("Erro ao atualizar. Tente novamente.")
+    # Destaque se for hoje
+    if data_escolhida == hoje:
+        st.success("Exibindo dados de **hoje**")
     else:
-        st.caption("Nenhum registro para editar.")
+        st.info(f"Exibindo dados de **{data_str_selecionada}**")
 
     st.divider()
 
-    # --- IMPORTAÇÃO EM MASSA ---
-    st.subheader("📂 Importação em Massa")
-    
-    # Modelo
+    # ---------- FILTROS ----------
+    st.markdown("#### 🔍 Filtros")
+
+    df_all = carregar_dados()
+
+    # Filtra primeiro pela data para popular as opções dos outros filtros
+    df_data = df_all[df_all["Data"] == data_str_selecionada] if not df_all.empty else df_all
+
+    municipios_opts = ["Todos"] + sorted(df_data["Municipio"].dropna().unique().tolist()) if not df_data.empty else ["Todos"]
+    mun_sel = st.selectbox("Município", municipios_opts, key="filtro_municipio")
+
+    if mun_sel != "Todos" and not df_data.empty:
+        bairros_base = df_data[df_data["Municipio"] == mun_sel]
+    else:
+        bairros_base = df_data
+
+    bairros_opts = ["Todos"] + sorted(bairros_base["Bairro"].dropna().unique().tolist()) if not bairros_base.empty else ["Todos"]
+    bairro_sel = st.selectbox("Bairro", bairros_opts, key="filtro_bairro")
+
+    faixa_sel = st.selectbox(
+        "Faixa de Pressão",
+        ["Todas", "Críticos (0 MCA)", "Atenção (≤ 5 MCA)", "Normais (> 5 MCA)"],
+        key="filtro_pressao"
+    )
+
+    st.divider()
+
+    # ---------- NOVO REGISTRO (somente hoje) ----------
+    st.markdown("#### ➕ Novo Ponto")
+    if data_escolhida != hoje:
+        st.warning("Cadastro manual disponível apenas para a **data de hoje**. Use o upload para datas anteriores.")
+    else:
+        lat_default = st.session_state.clicked_lat if st.session_state.clicked_lat is not None else 0.0
+        lon_default = st.session_state.clicked_lon if st.session_state.clicked_lon is not None else 0.0
+
+        with st.form("form_novo_ponto", clear_on_submit=True):
+            municipio = st.text_input("Município *", value="Teresina")
+            bairro = st.text_input("Bairro *", placeholder="Ex: Centro")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                lat = st.number_input("Latitude *", format="%.6f", value=float(lat_default), step=0.000001)
+            with c2:
+                lon = st.number_input("Longitude *", format="%.6f", value=float(lon_default), step=0.000001)
+
+            pressao = st.number_input("Pressão (MCA) *", format="%.2f", value=0.00, min_value=0.0, step=0.1)
+
+            enviado = st.form_submit_button("Cadastrar Ponto", type="primary", use_container_width=True)
+
+            if enviado:
+                if not municipio.strip() or not bairro.strip():
+                    st.error("Município e Bairro são obrigatórios.")
+                elif lat == 0.0 and lon == 0.0:
+                    st.error("Informe coordenadas válidas ou clique no mapa.")
+                else:
+                    lat_n = normalizar_coordenada(lat, "lat")
+                    lon_n = normalizar_coordenada(lon, "lon")
+                    if lat_n is None or lon_n is None:
+                        st.error("Coordenadas fora da região válida (Piauí).")
+                    else:
+                        novo_id = adicionar_ponto(
+                            municipio.strip(), bairro.strip(),
+                            lat_n, lon_n, pressao,
+                            data_para_str(hoje)
+                        )
+                        st.success(f"Ponto cadastrado! ID: {novo_id}")
+                        st.session_state.clicked_lat = None
+                        st.session_state.clicked_lon = None
+                        st.rerun()
+
+        if st.session_state.clicked_lat is not None:
+            st.caption(f"📍 {st.session_state.clicked_lat:.6f}, {st.session_state.clicked_lon:.6f}")
+            if st.button("Limpar coordenadas", use_container_width=True):
+                st.session_state.clicked_lat = None
+                st.session_state.clicked_lon = None
+                st.rerun()
+
+    st.divider()
+
+    # ---------- IMPORTAÇÃO ----------
+    st.markdown("#### 📂 Importação em Massa")
+    st.caption("Permite cadastrar pontos em qualquer data.")
+
     df_modelo = pd.DataFrame([{
-        "Data": datetime.now().strftime("%d/%m/%Y"),
+        "Data": data_para_str(hoje),
         "Municipio": "Teresina",
         "Bairro": "Centro",
         "Latitude": -5.0892,
         "Longitude": -42.8019,
         "Pressao_MCA": 4.5
     }])
-    csv_modelo = df_modelo.to_csv(index=False).encode("utf-8")
-    
     st.download_button(
         "📥 Baixar Modelo CSV",
-        data=csv_modelo,
+        data=df_modelo.to_csv(index=False).encode("utf-8"),
         file_name="modelo_importacao_coi.csv",
         mime="text/csv",
         use_container_width=True
     )
-    
-    arquivo = st.file_uploader("Enviar planilha (CSV ou Excel)", type=["csv", "xlsx"])
-    
+
+    arquivo = st.file_uploader("Enviar planilha (CSV / Excel)", type=["csv", "xlsx"])
+
     if arquivo is not None:
         try:
             if arquivo.name.endswith(".csv"):
                 df_up = pd.read_csv(arquivo)
             else:
                 df_up = pd.read_excel(arquivo)
-            
-            st.caption(f"Arquivo com **{len(df_up)}** linhas")
+
+            st.caption(f"{len(df_up)} linhas detectadas")
             st.dataframe(df_up.head(3), use_container_width=True)
-            
+
             if st.button("📤 Processar e Enviar", type="primary", use_container_width=True):
                 contador = 0
                 erros = 0
-                
                 for _, row in df_up.iterrows():
+                    # Data
+                    data_raw = row.get("Data") or row.get("data")
+                    if pd.isna(data_raw) or str(data_raw).strip() == "":
+                        data_reg = data_para_str(hoje)
+                    else:
+                        # Tenta vários formatos
+                        data_reg = str(data_raw).strip()
+                        try:
+                            if isinstance(data_raw, datetime):
+                                data_reg = data_raw.strftime("%d/%m/%Y")
+                            elif isinstance(data_raw, date):
+                                data_reg = data_raw.strftime("%d/%m/%Y")
+                        except Exception:
+                            pass
+
                     mun = str(row.get("Municipio") or row.get("Município") or "Teresina").strip()
                     bairro = str(row.get("Bairro") or "").strip()
-                    
-                    if not bairro or bairro.lower() == "nan":
+                    if not bairro or bairro.lower() in ("nan", "none"):
                         continue
-                    
+
                     lat = normalizar_coordenada(row.get("Latitude") or row.get("Lat"), "lat")
                     lon = normalizar_coordenada(row.get("Longitude") or row.get("Lon") or row.get("Long"), "lon")
                     pressao = parse_float(row.get("Pressao_MCA") or row.get("Pressão") or row.get("MCA"), 0.0)
-                    
+
                     if lat is None or lon is None:
                         erros += 1
                         continue
-                    
-                    adicionar_ponto(mun, bairro, lat, lon, pressao)
+
+                    adicionar_ponto(mun, bairro, lat, lon, pressao, data_reg)
                     contador += 1
-                
-                st.success(f"✅ {contador} registros importados." + (f" {erros} ignorados por coordenadas inválidas." if erros else ""))
+
+                msg = f"✅ {contador} registros importados."
+                if erros:
+                    msg += f" {erros} ignorados (coordenadas inválidas)."
+                st.success(msg)
                 st.rerun()
-                
         except Exception as e:
-            st.error(f"Erro ao processar arquivo: {e}")
+            st.error(f"Erro ao processar: {e}")
 
     st.divider()
 
-    # --- EXPORTAÇÃO ---
-    st.subheader("💾 Exportação")
-    
+    # ---------- EXPORTAÇÃO ----------
+    st.markdown("#### 💾 Exportação")
     df_export = carregar_dados()
-    
+
     if not df_export.empty:
-        # Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df_export.to_excel(writer, index=False, sheet_name="Plantao_COI")
-        
         st.download_button(
             "📁 Baixar Excel",
             data=output.getvalue(),
@@ -397,158 +502,114 @@ with st.sidebar:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-        
+
         # KMZ
         kml = simplekml.Kml()
         for _, row in df_export.iterrows():
             if pd.notna(row["Latitude"]) and pd.notna(row["Longitude"]):
                 nome = f"{row['Municipio']} - {row['Bairro']} ({row['Pressao_MCA']} MCA)"
                 kml.newpoint(name=nome, coords=[(row["Longitude"], row["Latitude"])])
-        
-        kmz_buffer = io.BytesIO()
-        kml.savekmz(kmz_buffer)  # simplekml aceita file-like em versões recentes
-        # Fallback caso a versão não suporte BytesIO diretamente
+
         try:
-            kmz_data = kmz_buffer.getvalue()
-        except Exception:
-            # Salva temporariamente
-            kml.savekmz("temp_pontos.kmz")
-            with open("temp_pontos.kmz", "rb") as f:
+            kmz_buffer = io.BytesIO()
+            # simplekml savekmz espera path; usamos arquivo temporário
+            temp_kmz = "temp_export.kmz"
+            kml.savekmz(temp_kmz)
+            with open(temp_kmz, "rb") as f:
                 kmz_data = f.read()
-            if os.path.exists("temp_pontos.kmz"):
-                os.remove("temp_pontos.kmz")
-        
-        st.download_button(
-            "🗺️ Baixar KMZ",
-            data=kmz_data,
-            file_name="pontos_baixa_pressao.kmz",
-            mime="application/vnd.google-earth.kmz",
-            use_container_width=True
-        )
+            if os.path.exists(temp_kmz):
+                os.remove(temp_kmz)
+        except Exception:
+            kmz_data = b""
+
+        if kmz_data:
+            st.download_button(
+                "🗺️ Baixar KMZ",
+                data=kmz_data,
+                file_name="pontos_baixa_pressao.kmz",
+                mime="application/vnd.google-earth.kmz",
+                use_container_width=True
+            )
     else:
         st.caption("Nenhum dado para exportar.")
+
+    st.divider()
+
+    # Atualização automática
+    st.markdown("#### ⏱️ Atualização")
+    intervalo = st.select_slider(
+        "Intervalo (segundos)",
+        options=[0, 15, 30, 60, 120],
+        value=30,
+        help="0 = desativado"
+    )
+    if intervalo > 0:
+        st_autorefresh(interval=intervalo * 1000, key="autorefresh")
 
 # ============================================================
 # ÁREA PRINCIPAL
 # ============================================================
 st.title("💧 Painel de Monitoramento de Baixa Pressão - COI")
-st.caption("Visualização em tempo real de ocorrências de baixa pressão e rede de abastecimento.")
+st.caption(f"Visualizando: **{data_str_selecionada}**" + (" (hoje)" if data_escolhida == hoje else ""))
 
+# Aplica filtros
 df = carregar_dados()
+df_filtrado = df[df["Data"] == data_str_selecionada].copy() if not df.empty else df.copy()
 
-# --- FILTROS ---
-if not df.empty:
-    st.subheader("🔍 Filtros")
-    
-    f1, f2, f3, f4 = st.columns(4)
-    
-    with f1:
-        datas = ["Todas"] + sorted(df["Data"].dropna().unique().tolist())
-        data_sel = st.selectbox("Data", datas)
-    
-    with f2:
-        municipios = ["Todos"] + sorted(df["Municipio"].dropna().unique().tolist())
-        mun_sel = st.selectbox("Município", municipios)
-    
-    with f3:
-        bairros = ["Todos"] + sorted(df["Bairro"].dropna().unique().tolist())
-        bairro_sel = st.selectbox("Bairro", bairros)
-    
-    with f4:
-        faixa = st.selectbox("Pressão", ["Todas", "Críticos (0 MCA)", "Atenção (≤ 5 MCA)", "Normais (> 5 MCA)"])
-    
-    # Aplica filtros
-    df_filtrado = df.copy()
-    
-    if data_sel != "Todas":
-        df_filtrado = df_filtrado[df_filtrado["Data"] == data_sel]
-    if mun_sel != "Todos":
-        df_filtrado = df_filtrado[df_filtrado["Municipio"] == mun_sel]
-    if bairro_sel != "Todos":
-        df_filtrado = df_filtrado[df_filtrado["Bairro"] == bairro_sel]
-    
-    if faixa == "Críticos (0 MCA)":
-        df_filtrado = df_filtrado[df_filtrado["Pressao_MCA"] == 0]
-    elif faixa == "Atenção (≤ 5 MCA)":
-        df_filtrado = df_filtrado[(df_filtrado["Pressao_MCA"] > 0) & (df_filtrado["Pressao_MCA"] <= 5)]
-    elif faixa == "Normais (> 5 MCA)":
-        df_filtrado = df_filtrado[df_filtrado["Pressao_MCA"] > 5]
-else:
-    df_filtrado = df.copy()
+if mun_sel != "Todos":
+    df_filtrado = df_filtrado[df_filtrado["Municipio"] == mun_sel]
+if bairro_sel != "Todos":
+    df_filtrado = df_filtrado[df_filtrado["Bairro"] == bairro_sel]
 
-# --- KPIs ---
+if faixa_sel == "Críticos (0 MCA)":
+    df_filtrado = df_filtrado[df_filtrado["Pressao_MCA"] == 0]
+elif faixa_sel == "Atenção (≤ 5 MCA)":
+    df_filtrado = df_filtrado[(df_filtrado["Pressao_MCA"] > 0) & (df_filtrado["Pressao_MCA"] <= 5)]
+elif faixa_sel == "Normais (> 5 MCA)":
+    df_filtrado = df_filtrado[df_filtrado["Pressao_MCA"] > 5]
+
+# ---------- KPIs ----------
 if not df_filtrado.empty:
     total = len(df_filtrado)
     criticos = len(df_filtrado[df_filtrado["Pressao_MCA"] == 0])
     atencao = len(df_filtrado[(df_filtrado["Pressao_MCA"] > 0) & (df_filtrado["Pressao_MCA"] <= 5)])
     normais = len(df_filtrado[df_filtrado["Pressao_MCA"] > 5])
-    
+
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total de Ocorrências", total)
     k2.metric("Críticos (0 MCA)", criticos, delta_color="inverse")
     k3.metric("Em Atenção (≤ 5 MCA)", atencao)
     k4.metric("Normais (> 5 MCA)", normais)
-    
+
     if criticos > 0:
         st.error(f"🚨 **ALERTA COI:** Existem **{criticos}** ocorrência(s) com pressão zerada (0 MCA) exigindo ação imediata!")
+else:
+    st.info("Nenhum ponto registrado para a data e filtros selecionados.")
 
 st.divider()
 
-# --- TABELA + EXCLUSÃO ---
-col_tab, col_exc = st.columns([3, 1])
+# ============================================================
+# MAPA (PRIORIDADE VISUAL)
+# ============================================================
+st.subheader("🗺️ Mapa de Baixa Pressão")
 
-with col_tab:
-    st.subheader("📋 Registro de Pontos")
-    if not df_filtrado.empty:
-        df_show = df_filtrado.copy()
-        df_show.index = range(1, len(df_show) + 1)
-        st.dataframe(
-            df_show[["ID", "Data", "Municipio", "Bairro", "Latitude", "Longitude", "Pressao_MCA"]],
-            use_container_width=True,
-            height=300
+c_map1, c_map2 = st.columns([1, 4])
+with c_map1:
+    mostrar_rotulos = st.checkbox("Exibir rótulos", value=False)
+    if data_escolhida == hoje:
+        st.session_state.modo_adicionar_mapa = st.checkbox(
+            "📍 Modo adicionar ponto",
+            value=st.session_state.modo_adicionar_mapa,
+            help="Clique no mapa para capturar coordenadas (somente hoje)"
         )
     else:
-        st.info("Nenhum ponto encontrado com os filtros selecionados.")
-
-with col_exc:
-    st.subheader("🗑️ Excluir")
-    if not df.empty:
-        opcoes_exc = [
-            f"{row['ID']} | {row['Municipio']} - {row['Bairro']}"
-            for _, row in df.iterrows()
-        ]
-        ponto_exc = st.selectbox("Selecione:", opcoes_exc, key="select_exclusao")
-        
-        if st.button("Confirmar Exclusão", type="primary", use_container_width=True):
-            id_exc = ponto_exc.split(" | ")[0]
-            if excluir_ponto(id_exc):
-                st.success("Registro excluído!")
-                st.rerun()
-            else:
-                st.error("Erro ao excluir.")
-    else:
-        st.caption("Nada para excluir.")
-
-st.divider()
-
-# ============================================================
-# MAPA INTERATIVO
-# ============================================================
-st.subheader("🗺️ Mapa de Baixa Pressão em Tempo Real")
-
-col_map1, col_map2 = st.columns([1, 3])
-with col_map1:
-    mostrar_rotulos = st.checkbox("Exibir rótulos nos pontos", value=False)
-    st.session_state.modo_adicionar_mapa = st.checkbox(
-        "📍 Modo adicionar ponto (clique no mapa)",
-        value=st.session_state.modo_adicionar_mapa,
-        help="Ative e clique no mapa para capturar coordenadas"
-    )
+        st.session_state.modo_adicionar_mapa = False
+        st.caption("Adicionar pelo mapa disponível apenas na data de hoje.")
 
 # Centro do mapa
 if not df_filtrado.empty and df_filtrado["Latitude"].notna().any():
-    centro_lat = df_filtrado["Latitude"].mean()
-    centro_lon = df_filtrado["Longitude"].mean()
+    centro_lat = float(df_filtrado["Latitude"].mean())
+    centro_lon = float(df_filtrado["Longitude"].mean())
     zoom = 13
 else:
     centro_lat, centro_lon = LAT_BASE, LON_BASE
@@ -556,7 +617,7 @@ else:
 
 m = folium.Map(location=[centro_lat, centro_lon], zoom_start=zoom, tiles="OpenStreetMap")
 
-# GeoJSON de bairros (se existir)
+# GeoJSON opcional
 if os.path.exists("bairros.geojson"):
     try:
         with open("bairros.geojson", "r", encoding="utf-8") as f:
@@ -578,11 +639,10 @@ if os.path.exists("bairros.geojson"):
 # Marcadores
 if not df_filtrado.empty:
     validos = df_filtrado.dropna(subset=["Latitude", "Longitude"])
-    
     for _, row in validos.iterrows():
         pressao = row["Pressao_MCA"]
         cor = "red" if pressao == 0 else ("orange" if pressao <= 5 else "blue")
-        
+
         popup = f"""
         <b>ID:</b> {row['ID']}<br>
         <b>Data:</b> {row['Data']}<br>
@@ -590,7 +650,7 @@ if not df_filtrado.empty:
         <b>Bairro:</b> {row['Bairro']}<br>
         <b>Pressão:</b> {pressao} MCA
         """
-        
+
         if mostrar_rotulos:
             icon_html = f"""
             <div style="transform: translate(-50%, -100%); text-align: center;">
@@ -620,17 +680,21 @@ if not df_filtrado.empty:
 
 folium.LayerControl().add_to(m)
 
-# Renderiza o mapa e captura cliques
 map_data = st_folium(
     m,
     width="100%",
-    height=550,
+    height=520,
     returned_objects=["last_clicked"],
     key="mapa_principal"
 )
 
-# Captura clique no mapa
-if st.session_state.modo_adicionar_mapa and map_data and map_data.get("last_clicked"):
+# Captura clique (somente se modo ativo e data = hoje)
+if (
+    st.session_state.modo_adicionar_mapa
+    and data_escolhida == hoje
+    and map_data
+    and map_data.get("last_clicked")
+):
     clicked = map_data["last_clicked"]
     if clicked:
         st.session_state.clicked_lat = round(clicked["lat"], 6)
@@ -640,4 +704,95 @@ if st.session_state.modo_adicionar_mapa and map_data and map_data.get("last_clic
         st.rerun()
 
 if df_filtrado.empty or df_filtrado.dropna(subset=["Latitude", "Longitude"]).empty:
-    st.info("Nenhum ponto com coordenadas válidas para exibir no mapa.")
+    st.caption("Nenhum ponto com coordenadas válidas para esta data/filtros.")
+
+st.divider()
+
+# ============================================================
+# TABELA DE REGISTROS + AÇÕES (abaixo do mapa)
+# ============================================================
+st.subheader("📋 Registro de Pontos")
+
+if not df_filtrado.empty:
+    df_show = df_filtrado[["ID", "Data", "Municipio", "Bairro", "Latitude", "Longitude", "Pressao_MCA"]].copy()
+    df_show = df_show.reset_index(drop=True)
+    df_show.index = df_show.index + 1
+
+    st.dataframe(df_show, use_container_width=True, height=280)
+
+    st.markdown("##### Ações sobre o registro")
+    opcoes = [
+        f"{row['ID']} | {row['Municipio']} - {row['Bairro']} ({row['Pressao_MCA']} MCA)"
+        for _, row in df_filtrado.iterrows()
+    ]
+    escolha = st.selectbox(
+        "Selecione um registro:",
+        ["— Nenhum —"] + opcoes,
+        key="select_acao"
+    )
+
+    if escolha != "— Nenhum —":
+        id_sel = escolha.split(" | ")[0]
+        registro = df_filtrado[df_filtrado["ID"] == id_sel].iloc[0]
+
+        col_a, col_b, col_c = st.columns([1, 1, 4])
+        with col_a:
+            if st.button("✏️ Editar", use_container_width=True, key="btn_editar"):
+                st.session_state.registro_selecionado_id = id_sel
+                st.session_state.modo_edicao = True
+                st.rerun()
+        with col_b:
+            if st.button("🗑️ Excluir", use_container_width=True, key="btn_excluir"):
+                if excluir_ponto(id_sel):
+                    st.success("Registro excluído com sucesso.")
+                    st.session_state.registro_selecionado_id = None
+                    st.session_state.modo_edicao = False
+                    st.rerun()
+                else:
+                    st.error("Erro ao excluir o registro.")
+
+        # Formulário de edição (aparece quando clica no lápis)
+        if st.session_state.modo_edicao and st.session_state.registro_selecionado_id == id_sel:
+            st.markdown("---")
+            st.markdown(f"**Editando registro:** `{id_sel}`")
+
+            with st.form("form_edicao_inline"):
+                e_mun = st.text_input("Município", value=registro["Municipio"])
+                e_bairro = st.text_input("Bairro", value=registro["Bairro"])
+                e1, e2 = st.columns(2)
+                with e1:
+                    e_lat = st.number_input("Latitude", format="%.6f", value=float(registro["Latitude"] or 0))
+                with e2:
+                    e_lon = st.number_input("Longitude", format="%.6f", value=float(registro["Longitude"] or 0))
+                e_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=float(registro["Pressao_MCA"]))
+                e_data = st.text_input("Data (DD/MM/AAAA)", value=registro["Data"])
+
+                c_save, c_cancel = st.columns(2)
+                with c_save:
+                    salvar = st.form_submit_button("💾 Salvar alterações", type="primary", use_container_width=True)
+                with c_cancel:
+                    cancelar = st.form_submit_button("Cancelar", use_container_width=True)
+
+                if salvar:
+                    ok = atualizar_ponto(
+                        id_sel,
+                        e_mun.strip(),
+                        e_bairro.strip(),
+                        e_lat,
+                        e_lon,
+                        e_pressao,
+                        e_data.strip()
+                    )
+                    if ok:
+                        st.success("Registro atualizado!")
+                        st.session_state.modo_edicao = False
+                        st.session_state.registro_selecionado_id = None
+                        st.rerun()
+                    else:
+                        st.error("Erro ao atualizar. Verifique se o ID existe na planilha.")
+                if cancelar:
+                    st.session_state.modo_edicao = False
+                    st.session_state.registro_selecionado_id = None
+                    st.rerun()
+else:
+    st.info("Nenhum ponto encontrado para a data e filtros selecionados.")
