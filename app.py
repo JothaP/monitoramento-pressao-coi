@@ -229,7 +229,7 @@ def carregar_dados() -> pd.DataFrame:
     df["Latitude"] = df["Latitude"].apply(lambda x: normalizar_coordenada(x, "lat"))
     df["Longitude"] = df["Longitude"].apply(lambda x: normalizar_coordenada(x, "lon"))
     df["Pressao_MCA"] = df["Pressao_MCA"].apply(lambda x: parse_float(x, 0.0))
-    df["Data"] = df["Data"].astype(str).str.strip()
+    df["Data"] = df["Data"].apply(normalizar_data)
     df["Municipio"] = df["Municipio"].astype(str).str.strip().replace({"nan": "Teresina", "None": "Teresina"})
     df["Bairro"] = df["Bairro"].astype(str).str.strip().replace({"nan": "", "None": ""})
 
@@ -279,9 +279,66 @@ def data_para_str(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 
 
+def normalizar_data(valor) -> str:
+    """
+    Converte qualquer formato de data para o padrão DD/MM/YYYY.
+    Aceita: datetime, date, string nos formatos mais comuns, e serial do Excel.
+    """
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return ""
+
+    # Já é date ou datetime
+    if isinstance(valor, datetime):
+        return valor.strftime("%d/%m/%Y")
+    if isinstance(valor, date):
+        return valor.strftime("%d/%m/%Y")
+
+    texto = str(valor).strip()
+    if not texto or texto.lower() in ("nan", "none", "nat"):
+        return ""
+
+    # Tenta vários formatos comuns
+    formatos = [
+        "%d/%m/%Y",
+        "%d/%m/%y",
+        "%Y-%m-%d",
+        "%d-%m-%Y",
+        "%d-%m-%y",
+        "%Y/%m/%d",
+        "%d.%m.%Y",
+        "%d.%m.%y",
+        "%m/%d/%Y",   # formato americano
+        "%m/%d/%y",
+        "%Y-%m-%d %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
+    ]
+
+    for fmt in formatos:
+        try:
+            return datetime.strptime(texto, fmt).strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+
+    # Tenta serial do Excel (número)
+    try:
+        num = float(texto)
+        if 30000 < num < 60000:  # faixa típica de datas Excel
+            from datetime import timedelta
+            base = datetime(1899, 12, 30)
+            return (base + timedelta(days=num)).strftime("%d/%m/%Y")
+    except (ValueError, TypeError):
+        pass
+
+    # Se nada funcionou, devolve o texto original limpo
+    return texto
+
+
 def str_para_data(s: str) -> Optional[date]:
     try:
-        return datetime.strptime(str(s).strip(), "%d/%m/%Y").date()
+        normalizado = normalizar_data(s)
+        if not normalizado:
+            return None
+        return datetime.strptime(normalizado, "%d/%m/%Y").date()
     except Exception:
         return None
 
@@ -446,20 +503,11 @@ with st.sidebar:
                 contador = 0
                 erros = 0
                 for _, row in df_up.iterrows():
-                    # Data
+                    # Data - normaliza para DD/MM/YYYY
                     data_raw = row.get("Data") or row.get("data")
-                    if pd.isna(data_raw) or str(data_raw).strip() == "":
+                    data_reg = normalizar_data(data_raw)
+                    if not data_reg:
                         data_reg = data_para_str(hoje)
-                    else:
-                        # Tenta vários formatos
-                        data_reg = str(data_raw).strip()
-                        try:
-                            if isinstance(data_raw, datetime):
-                                data_reg = data_raw.strftime("%d/%m/%Y")
-                            elif isinstance(data_raw, date):
-                                data_reg = data_raw.strftime("%d/%m/%Y")
-                        except Exception:
-                            pass
 
                     mun = str(row.get("Municipio") or row.get("Município") or "Teresina").strip()
                     bairro = str(row.get("Bairro") or "").strip()
