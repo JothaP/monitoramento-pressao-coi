@@ -228,39 +228,72 @@ def normalizar_coordenada(valor, tipo: str = "lat") -> Optional[float]:
     return round(float(num), 6)
 
 
-@st.cache_data(ttl=10, show_spinner="Carregando dados...")
+@st.cache_data(ttl=5, show_spinner="Carregando dados...")
 def carregar_dados() -> pd.DataFrame:
-    # v2 - parsing de coordenadas apenas com troca de vírgula/ponto
+    """
+    Carrega dados da planilha de forma robusta.
+    Usa get_all_values para ter controle total sobre cabeçalhos e valores.
+    """
     try:
-        registros = worksheet.get_all_records()
+        valores = worksheet.get_all_values()
     except Exception as e:
         st.error(f"Erro ao ler planilha: {e}")
         return pd.DataFrame(columns=COLUNAS_PADRAO)
+
+    if not valores or len(valores) < 2:
+        return pd.DataFrame(columns=COLUNAS_PADRAO)
+
+    # Primeira linha = cabeçalhos
+    cabecalhos_raw = valores[0]
+    cabecalhos = [normalizar_coluna(c) for c in cabecalhos_raw]
+
+    # Monta lista de dicionários
+    registros = []
+    for linha in valores[1:]:
+        if not any(str(c).strip() for c in linha):  # linha vazia
+            continue
+        reg = {}
+        for i, col in enumerate(cabecalhos):
+            reg[col] = linha[i] if i < len(linha) else ""
+        registros.append(reg)
 
     if not registros:
         return pd.DataFrame(columns=COLUNAS_PADRAO)
 
     df = pd.DataFrame(registros)
-    df.columns = [normalizar_coluna(c) for c in df.columns]
 
+    # Garante todas as colunas esperadas
     for col in COLUNAS_PADRAO:
         if col not in df.columns:
-            df[col] = None
+            df[col] = ""
 
-    # Gera ID temporário para registros antigos (não grava de volta automaticamente)
-    mask = df["ID"].isna() | (df["ID"].astype(str).str.strip() == "") | (df["ID"].astype(str).str.lower() == "nan")
-    if mask.any():
-        df.loc[mask, "ID"] = [gerar_id() for _ in range(mask.sum())]
+    # ID
+    def limpar_id(v):
+        s = str(v).strip()
+        if not s or s.lower() in ("nan", "none", ""):
+            return gerar_id()
+        return s
 
+    df["ID"] = df["ID"].apply(limpar_id)
+
+    # Data
+    df["Data"] = df["Data"].apply(normalizar_data)
+
+    # Texto
+    df["Municipio"] = df["Municipio"].astype(str).str.strip()
+    df["Municipio"] = df["Municipio"].replace({"": "Teresina", "nan": "Teresina", "None": "Teresina"})
+    df["Bairro"] = df["Bairro"].astype(str).str.strip()
+    df["Bairro"] = df["Bairro"].replace({"nan": "", "None": ""})
+
+    # Coordenadas — só troca vírgula por ponto e arredonda
     df["Latitude"] = df["Latitude"].apply(lambda x: normalizar_coordenada(x, "lat"))
     df["Longitude"] = df["Longitude"].apply(lambda x: normalizar_coordenada(x, "lon"))
-    df["Pressao_MCA"] = df["Pressao_MCA"].apply(lambda x: parse_float(x, 0.0))
-    df["Data"] = df["Data"].apply(normalizar_data)
-    df["Municipio"] = df["Municipio"].astype(str).str.strip().replace({"nan": "Teresina", "None": "Teresina"})
-    df["Bairro"] = df["Bairro"].astype(str).str.strip().replace({"nan": "", "None": ""})
 
-    df = df.dropna(how="all")
-    df = df[df["Bairro"] != ""]
+    # Pressão
+    df["Pressao_MCA"] = df["Pressao_MCA"].apply(lambda x: parse_float(x, 0.0) or 0.0)
+
+    # Remove linhas totalmente vazias de bairro (sem identificação)
+    df = df[df["Bairro"].astype(str).str.strip() != ""]
 
     return df[COLUNAS_PADRAO].reset_index(drop=True)
 
@@ -628,6 +661,23 @@ st.caption(f"Visualizando: **{data_str_selecionada}**" + (" (hoje)" if data_esco
 
 # Aplica filtros
 df = carregar_dados()
+
+# ---------- DIAGNÓSTICO (temporário) ----------
+with st.expander("🔧 Diagnóstico de dados (clique para abrir)", expanded=True):
+    st.write(f"**Total de linhas lidas da planilha:** {len(df)}")
+    if not df.empty:
+        st.write("**Colunas detectadas:**", list(df.columns))
+        st.write("**Datas encontradas na planilha:**", sorted(df["Data"].dropna().unique().tolist()))
+        st.write("**Data selecionada no calendário:**", data_str_selecionada)
+        st.write("**Linhas com a data selecionada:**", len(df[df["Data"] == data_str_selecionada]))
+        st.write("**Amostra dos dados (5 primeiras linhas):**")
+        st.dataframe(df.head(5), use_container_width=True)
+        st.write("**Latitude/Longitude nulas:**",
+                 int(df["Latitude"].isna().sum()), "/", int(df["Longitude"].isna().sum()))
+    else:
+        st.warning("Nenhuma linha foi carregada da planilha.")
+        st.caption("Verifique se a planilha tem cabeçalho na primeira linha e dados a partir da segunda.")
+
 df_filtrado = df[df["Data"] == data_str_selecionada].copy() if not df.empty else df.copy()
 
 if mun_sel != "Todos":
