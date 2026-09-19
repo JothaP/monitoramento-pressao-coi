@@ -778,9 +778,10 @@ if not df_filtrado.empty:
         if mostrar_rotulos:
             icon_html = f"""
             <div style="transform: translate(-50%, -100%); text-align: center;">
-                <div style="background:white;padding:2px 6px;border:1.5px solid {cor};
-                            border-radius:4px;font-size:11px;font-weight:bold;
-                            white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);">
+                <div style="background:white;padding:4px 10px;border:1.5px solid {cor};
+                            border-radius:4px;font-size:12px;font-weight:bold;
+                            white-space:nowrap;display:inline-block;
+                            box-shadow:0 1px 3px rgba(0,0,0,0.3);">
                     {row['Bairro']} ({pressao} MCA)
                 </div>
                 <div style="background:{cor};width:12px;height:12px;border-radius:50%;
