@@ -184,20 +184,41 @@ def parse_float(valor, default: float = 0.0) -> float:
 
 
 def normalizar_coordenada(valor, tipo: str = "lat") -> Optional[float]:
+    """
+    Converte coordenada para float.
+    Tenta corrigir valores que vieram sem ponto decimal (ex: -5089200).
+    Só descarta se estiver claramente fora dos limites geográficos mundiais.
+    """
     num = parse_float(valor, None)
     if num is None:
         return None
 
+    # Corrige valores que provavelmente vieram multiplicados (sem ponto decimal)
     if tipo == "lat":
         if abs(num) > 90:
-            num = num / 1_000_000 if abs(num) > 1000 else num / 100_000
-    else:
+            if abs(num) > 1_000_000:
+                num = num / 1_000_000
+            elif abs(num) > 10_000:
+                num = num / 100_000
+            elif abs(num) > 90:
+                num = num / 1000  # último recurso
+    else:  # longitude
         if abs(num) > 180:
-            num = num / 1_000_000 if abs(num) > 1000 else num / 100_000
+            if abs(num) > 1_000_000:
+                num = num / 1_000_000
+            elif abs(num) > 10_000:
+                num = num / 100_000
+            elif abs(num) > 180:
+                num = num / 1000
 
-    if tipo == "lat" and not (-10.5 <= num <= -2.5):
+    # Validação mínima mundial (não descarta pontos do Piauí por engano)
+    if tipo == "lat" and not (-90 <= num <= 90):
         return None
-    if tipo == "lon" and not (-46.0 <= num <= -40.0):
+    if tipo == "lon" and not (-180 <= num <= 180):
+        return None
+
+    # Descarta coordenadas claramente zeradas (0,0) que costumam ser erro de preenchimento
+    if num == 0.0:
         return None
 
     return round(num, 6)
@@ -446,7 +467,7 @@ with st.sidebar:
                     lat_n = normalizar_coordenada(lat, "lat")
                     lon_n = normalizar_coordenada(lon, "lon")
                     if lat_n is None or lon_n is None:
-                        st.error("Coordenadas fora da região válida (Piauí).")
+                        st.error("Coordenadas inválidas. Verifique latitude e longitude.")
                     else:
                         novo_id = adicionar_ponto(
                             municipio.strip(), bairro.strip(),
