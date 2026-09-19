@@ -781,28 +781,31 @@ st.divider()
 # TABELA DE REGISTROS + AÇÕES (abaixo do mapa)
 # ============================================================
 st.subheader("📋 Registro de Pontos")
+st.caption("Clique em uma linha da tabela para selecionar o registro e editar ou excluir.")
 
 if not df_filtrado.empty:
     df_show = df_filtrado[["ID", "Data", "Municipio", "Bairro", "Latitude", "Longitude", "Pressao_MCA"]].copy()
     df_show = df_show.reset_index(drop=True)
-    df_show.index = df_show.index + 1
 
-    st.dataframe(df_show, use_container_width=True, height=280)
-
-    st.markdown("##### Ações sobre o registro")
-    opcoes = [
-        f"{row['ID']} | {row['Municipio']} - {row['Bairro']} ({row['Pressao_MCA']} MCA)"
-        for _, row in df_filtrado.iterrows()
-    ]
-    escolha = st.selectbox(
-        "Selecione um registro:",
-        ["— Nenhum —"] + opcoes,
-        key="select_acao"
+    # Tabela com seleção de linha (clique na linha)
+    evento = st.dataframe(
+        df_show,
+        use_container_width=True,
+        height=300,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="tabela_registros"
     )
 
-    if escolha != "— Nenhum —":
-        id_sel = escolha.split(" | ")[0]
-        registro = df_filtrado[df_filtrado["ID"] == id_sel].iloc[0]
+    # Descobre qual linha foi clicada
+    linhas_selecionadas = evento.selection.rows if evento and evento.selection else []
+
+    if linhas_selecionadas:
+        idx = linhas_selecionadas[0]
+        registro = df_show.iloc[idx]
+        id_sel = str(registro["ID"])
+
+        st.markdown(f"**Registro selecionado:** `{registro['Municipio']} - {registro['Bairro']}` ({registro['Pressao_MCA']} MCA)")
 
         col_a, col_b, col_c = st.columns([1, 1, 4])
         with col_a:
@@ -818,23 +821,35 @@ if not df_filtrado.empty:
                     st.session_state.modo_edicao = False
                     st.rerun()
                 else:
-                    st.error("Erro ao excluir o registro.")
+                    st.error("Erro ao excluir o registro. Verifique se o ID existe na planilha.")
 
-        # Formulário de edição (aparece quando clica no lápis)
+        # Formulário de edição (aparece ao clicar em Editar)
         if st.session_state.modo_edicao and st.session_state.registro_selecionado_id == id_sel:
             st.markdown("---")
             st.markdown(f"**Editando registro:** `{id_sel}`")
 
             with st.form("form_edicao_inline"):
-                e_mun = st.text_input("Município", value=registro["Municipio"])
-                e_bairro = st.text_input("Bairro", value=registro["Bairro"])
+                e_mun = st.text_input("Município", value=str(registro["Municipio"]))
+                e_bairro = st.text_input("Bairro", value=str(registro["Bairro"]))
                 e1, e2 = st.columns(2)
                 with e1:
-                    e_lat = st.number_input("Latitude", format="%.6f", value=float(registro["Latitude"] or 0))
+                    e_lat = st.number_input(
+                        "Latitude",
+                        format="%.6f",
+                        value=float(registro["Latitude"]) if pd.notna(registro["Latitude"]) else 0.0
+                    )
                 with e2:
-                    e_lon = st.number_input("Longitude", format="%.6f", value=float(registro["Longitude"] or 0))
-                e_pressao = st.number_input("Pressão (MCA)", format="%.2f", value=float(registro["Pressao_MCA"]))
-                e_data = st.text_input("Data (DD/MM/AAAA)", value=registro["Data"])
+                    e_lon = st.number_input(
+                        "Longitude",
+                        format="%.6f",
+                        value=float(registro["Longitude"]) if pd.notna(registro["Longitude"]) else 0.0
+                    )
+                e_pressao = st.number_input(
+                    "Pressão (MCA)",
+                    format="%.2f",
+                    value=float(registro["Pressao_MCA"]) if pd.notna(registro["Pressao_MCA"]) else 0.0
+                )
+                e_data = st.text_input("Data (DD/MM/AAAA)", value=str(registro["Data"]))
 
                 c_save, c_cancel = st.columns(2)
                 with c_save:
@@ -863,5 +878,7 @@ if not df_filtrado.empty:
                     st.session_state.modo_edicao = False
                     st.session_state.registro_selecionado_id = None
                     st.rerun()
+    else:
+        st.caption("Nenhuma linha selecionada. Clique em uma linha da tabela acima.")
 else:
     st.info("Nenhum ponto encontrado para a data e filtros selecionados.")
