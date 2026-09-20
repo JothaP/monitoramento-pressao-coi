@@ -662,36 +662,6 @@ st.caption(f"Visualizando: **{data_str_selecionada}**" + (" (hoje)" if data_esco
 # Aplica filtros
 df = carregar_dados()
 
-# ---------- DIAGNÓSTICO (temporário) ----------
-with st.expander("🔧 Diagnóstico de dados (clique para abrir)", expanded=True):
-    st.write(f"**Total de linhas lidas da planilha:** {len(df)}")
-    if not df.empty:
-        st.write("**Colunas detectadas:**", list(df.columns))
-        st.write("**Datas encontradas na planilha:**", sorted(df["Data"].dropna().unique().tolist()))
-        st.write("**Data selecionada no calendário:**", data_str_selecionada)
-        st.write("**Linhas com a data selecionada:**", len(df[df["Data"] == data_str_selecionada]))
-        st.write("**Amostra dos dados (5 primeiras linhas):**")
-        st.dataframe(df.head(5), use_container_width=True)
-        st.write("**Latitude/Longitude nulas:**",
-                 int(df["Latitude"].isna().sum()), "/", int(df["Longitude"].isna().sum()))
-    else:
-        st.warning("Nenhuma linha foi carregada da planilha.")
-        st.caption("Verifique se a planilha tem cabeçalho na primeira linha e dados a partir da segunda.")
-
-df_filtrado = df[df["Data"] == data_str_selecionada].copy() if not df.empty else df.copy()
-
-if mun_sel != "Todos":
-    df_filtrado = df_filtrado[df_filtrado["Municipio"] == mun_sel]
-if bairro_sel != "Todos":
-    df_filtrado = df_filtrado[df_filtrado["Bairro"] == bairro_sel]
-
-if faixa_sel == "Críticos (0 MCA)":
-    df_filtrado = df_filtrado[df_filtrado["Pressao_MCA"] == 0]
-elif faixa_sel == "Atenção (≤ 5 MCA)":
-    df_filtrado = df_filtrado[(df_filtrado["Pressao_MCA"] > 0) & (df_filtrado["Pressao_MCA"] <= 5)]
-elif faixa_sel == "Normais (> 5 MCA)":
-    df_filtrado = df_filtrado[df_filtrado["Pressao_MCA"] > 5]
-
 # ---------- KPIs ----------
 if not df_filtrado.empty:
     total = len(df_filtrado)
