@@ -661,7 +661,6 @@ st.caption(f"Visualizando: **{data_str_selecionada}**" + (" (hoje)" if data_esco
 
 # Aplica filtros
 df = carregar_dados()
-
 # ---------- KPIs ----------
 if not df_filtrado.empty:
     total = len(df_filtrado)
