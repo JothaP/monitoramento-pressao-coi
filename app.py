@@ -661,6 +661,20 @@ st.caption(f"Visualizando: **{data_str_selecionada}**" + (" (hoje)" if data_esco
 
 # Aplica filtros
 df = carregar_dados()
+df_filtrado = df[df["Data"] == data_str_selecionada].copy() if not df.empty else df.copy()
+
+if mun_sel != "Todos":
+    df_filtrado = df_filtrado[df_filtrado["Municipio"] == mun_sel]
+if bairro_sel != "Todos":
+    df_filtrado = df_filtrado[df_filtrado["Bairro"] == bairro_sel]
+
+if faixa_sel == "Críticos (0 MCA)":
+    df_filtrado = df_filtrado[df_filtrado["Pressao_MCA"] == 0]
+elif faixa_sel == "Atenção (≤ 5 MCA)":
+    df_filtrado = df_filtrado[(df_filtrado["Pressao_MCA"] > 0) & (df_filtrado["Pressao_MCA"] <= 5)]
+elif faixa_sel == "Normais (> 5 MCA)":
+    df_filtrado = df_filtrado[df_filtrado["Pressao_MCA"] > 5]
+
 # ---------- KPIs ----------
 if not df_filtrado.empty:
     total = len(df_filtrado)
