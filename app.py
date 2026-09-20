@@ -766,7 +766,6 @@ if not df_filtrado.empty:
                     </div>
                     <div style="background-color: {cor}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.7);"></div>
                 </div>
-                """
                 custom_icon = folium.DivIcon(html=icon_html, icon_size=(1, 1), icon_anchor=(0, 0))
                 folium.Marker(
                     location=[row['Latitude'], row['Longitude']],
