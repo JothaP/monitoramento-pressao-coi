@@ -759,32 +759,27 @@ if not df_filtrado.empty:
         """
 
         if mostrar_rotulos:
-            icon_html = f"""
-            <div style="transform: translate(-50%, -100%); text-align: center;">
-                <div style="background:white;padding:4px 8px;border:1.5px solid {cor};
-                            border-radius:4px;font-size:12px;font-weight:bold;
-                            white-space:nowrap;display:inline-block
-                            box-shadow:0 1px 3px rgba(0,0,0,0.3);">
-                    {row['Bairro']} ({pressao} MCA)
+                icon_html = f"""
+                <div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
+                    <div style="background: white; padding: 3px 8px; border: 1.5px solid {cor}; border-radius: 4px; font-size: 12px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); color: #222; margin-bottom: 2px;">
+                        {bairro_nome} ({pressao} MCA)
+                    </div>
+                    <div style="background-color: {cor}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.7);"></div>
                 </div>
-                <div style="background:{cor};width:12px;height:12px;border-radius:50%;
-                            border:2px solid white;margin:2px auto 0;
-                            box-shadow:0 0 3px rgba(0,0,0,0.6);"></div>
-            </div>
-            """
-            icon = folium.DivIcon(html=icon_html, icon_size=(1, 1), icon_anchor=(0, 0))
-            folium.Marker(
-                location=[row["Latitude"], row["Longitude"]],
-                icon=icon,
-                popup=folium.Popup(popup, max_width=250)
-            ).add_to(m)
-        else:
-            folium.Marker(
-                location=[row["Latitude"], row["Longitude"]],
-                popup=folium.Popup(popup, max_width=250),
-                tooltip=f"{row['Municipio']} - {row['Bairro']} ({pressao} MCA)",
-                icon=folium.Icon(color=cor, icon="tint", prefix="fa")
-            ).add_to(m)
+                """
+                custom_icon = folium.DivIcon(html=icon_html, icon_size=(1, 1), icon_anchor=(0, 0))
+                folium.Marker(
+                    location=[row['Latitude'], row['Longitude']],
+                    icon=custom_icon
+                ).add_to(m)
+            else:
+                folium.Marker(
+                    location=[row['Latitude'], row['Longitude']],
+                    popup=folium.Popup(popup_html, max_width=250),
+                    tooltip=f"{mun_nome} - {bairro_nome} ({pressao} MCA)",
+                    icon=folium.Icon(color=cor, icon="tint", prefix="fa")
+                ).add_to(m)
+
 
 folium.LayerControl().add_to(m)
 
